@@ -469,7 +469,18 @@ export async function POST(request: NextRequest) {
       case 'loadProject': {
         const data = await loadProjectData(projectFile, year, month)
         const metrics = getProjectMetrics(data, project)
-        return NextResponse.json({ data, metrics })
+        
+        // Debug info
+        const debug = {
+          source: `Google Drive: Ai Chatbot Knowledge Base/${year}/${month}/${projectFile}`,
+          totalRows: data.length,
+          sampleRows: data.slice(0, 5),
+          uniqueSheets: [...new Set(data.map(d => d.Sheet_Name))],
+          uniqueFinancialTypes: [...new Set(data.map(d => d.Financial_Type))],
+          gpRows: data.filter(d => d.Item_Code === '3' && d.Data_Type?.toLowerCase().includes('gross profit'))
+        }
+        
+        return NextResponse.json({ data, metrics, debug })
       }
 
       case 'query': {
