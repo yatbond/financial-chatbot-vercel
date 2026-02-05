@@ -250,17 +250,16 @@ async function loadProjectData(filename: string, year: string, month: string): P
       if (i === 0 && (firstValue === 'year' || firstValue === 'sheet_name')) continue
       
       // Fixed column positions (7 columns per user):
-      // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Name, 4: Financial_Type, 5: Item_Code, 6: Data-Type (VALUE)
+      // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Name, 4: Financial_Type, 5: Item_Code, 6: Value (Data-Type)
       const value = parseFloat(values[6]) || 0
       
       const row: FinancialRow = {
         Year: values[0] || '',
         Month: values[1] || '',
         Sheet_Name: values[2] || '',
-        Financial_Name: values[3] || '',    // Extra column (not used)
-        Financial_Type: values[4] || '',
-        Data_Type: values[5] || '',      // Actually Item_Code?
-        Item_Code: values[5] || '',
+        Financial_Type: values[3] || '',  // Column 3: Financial_Name → use as Financial_Type
+        Data_Type: values[4] || '',      // Column 4: Financial_Type → use as Data_Type
+        Item_Code: values[5] || '',    // Column 5: Item_Code
         Value: value,
         _project: projectLabel
       }
