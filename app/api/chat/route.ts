@@ -489,25 +489,6 @@ function findFuzzyMatches(data: FinancialRow[], question: string, limit: number)
   return scored.slice(0, limit)
 }
 
-  if (filtered.length === 0) {
-    return `No data found for "${question}" in month ${targetMonth}.`
-  }
-
-  const total = filtered.reduce((sum, d) => sum + d.Value, 0)
-  const first = filtered[0]
-
-  return `## $${total.toLocaleString()} ('000)
-
-**Year:** ${first.Year}
-**Month:** ${first.Month}
-**Sheet:** ${first.Sheet_Name}
-**Financial Type:** ${first.Financial_Type}
-**Item Code:** ${first.Item_Code}
-**Data Type:** ${first.Data_Type}
-
-*Records found: ${filtered.length}*`
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
