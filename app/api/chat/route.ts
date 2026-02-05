@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import Papa from 'papaparse'
+import { google } from 'googleapis'
 
 // Acronym mapping (same as Streamlit app)
 const ACRONYM_MAP: Record<string, string> = {
@@ -26,11 +24,7 @@ const ACRONYM_MAP: Record<string, string> = {
 
 function expandAcronyms(text: string): string {
   const words = text.toLowerCase().split(/\s+/)
-  return words.map(word => {
-    // Check if word is a key in acronym map
-    if (ACRONYM_MAP[word]) return ACRONYM_MAP[word]
-    return word
-  }).join(' ')
+  return words.map(word => ACRONYM_MAP[word] || word).join(' ')
 }
 
 interface FinancialRow {
@@ -50,20 +44,64 @@ interface ProjectInfo {
   year: string
   month: string
   filename: string
+  fileId?: string
 }
 
 interface FolderStructure {
   [year: string]: string[]
 }
 
-interface ProjectMetrics {
-  'Business Plan GP': number
-  'Projected GP': number
-  'WIP GP': number
-  'Cash Flow': number
+// Google Drive helper functions
+async function getDriveService() {
+  // For Vercel: use environment variable
+  const credentials = process.env.GOOGLE_CREDENTIALS
+  if (!credentials) {
+    throw new Error('GOOGLE_CREDENTIALS not set')
+  }
+
+  const auth = new google.auth.GoogleAuth({
+    credentials: JSON.parse(credentials),
+    scopes: ['https://www.googleapis.com/auth/drive.readonly']
+  })
+
+  return google.drive({ version: 'v3', auth })
 }
 
-const DATA_DIR = 'G:/My Drive/Ai Chatbot Knowledge Base'
+async function findRootFolder(drive: any) {
+  const res = await drive.files.list({
+    q: "name='Ai Chatbot Knowledge Base' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+    fields: 'files(id, name)'
+  })
+
+  return res.data.files?.[0] || null
+}
+
+async function listYearFolders(drive: any, rootId: string) {
+  const res = await drive.files.list({
+    q: `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+    pageSize: 100
+  })
+  return res.data.files || []
+}
+
+async function listMonthFolders(drive: any, yearId: string) {
+  const res = await drive.files.list({
+    q: `'${yearId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+    pageSize: 100
+  })
+  return res.data.files || []
+}
+
+async function listCsvFiles(drive: any, monthId: string) {
+  const res = await drive.files.list({
+    q: `'${monthId}' in parents and name contains '_flat.csv' and trashed=false`,
+    fields: 'files(id, name)',
+    pageSize: 100
+  })
+  return res.data.files || []
+}
 
 // Extract project code and name from filename
 function extractProjectInfo(filename: string): { code: string | null; name: string } {
@@ -78,69 +116,115 @@ function extractProjectInfo(filename: string): { code: string | null; name: stri
   return { code: null, name }
 }
 
-// Get folder structure (fast - no data loading)
-function getFolderStructure(): { folders: FolderStructure; projects: Record<string, ProjectInfo> } {
+// Get folder structure from Google Drive
+async function getFolderStructure(): Promise<{ folders: FolderStructure; projects: Record<string, ProjectInfo> }> {
   const folders: FolderStructure = {}
   const projects: Record<string, ProjectInfo> = {}
 
-  if (!fs.existsSync(DATA_DIR)) {
-    return { folders, projects }
-  }
+  try {
+    const drive = await getDriveService()
+    const rootFolder = await findRootFolder(drive)
 
-  const years = fs.readdirSync(DATA_DIR).filter(f => {
-    const fullPath = path.join(DATA_DIR, f)
-    return fs.statSync(fullPath).isDirectory()
-  })
+    if (!rootFolder) {
+      return { folders, projects }
+    }
 
-  for (const year of years) {
-    const yearPath = path.join(DATA_DIR, year)
-    const months = fs.readdirSync(yearPath)
+    const yearFolders = await listYearFolders(drive, rootFolder.id!)
 
-    for (const month of months) {
-      const monthPath = path.join(yearPath, month)
-      const files = fs.readdirSync(monthPath).filter(f => f.endsWith('_flat.csv'))
+    for (const yearFolder of yearFolders) {
+      const year = yearFolder.name!
+      const monthFolders = await listMonthFolders(drive, yearFolder.id!)
 
-      if (files.length > 0) {
-        if (!folders[year]) folders[year] = []
-        if (!folders[year].includes(month)) folders[year].push(month)
+      for (const monthFolder of monthFolders) {
+        const csvFiles = await listCsvFiles(drive, monthFolder.id!)
 
-        for (const file of files) {
-          const { code, name } = extractProjectInfo(file)
-          if (code) {
-            projects[file] = { code, name, year, month, filename: file }
+        if (csvFiles.length > 0) {
+          if (!folders[year]) folders[year] = []
+          if (!folders[year].includes(monthFolder.name!)) folders[year].push(monthFolder.name!)
+
+          for (const file of csvFiles) {
+            const { code, name } = extractProjectInfo(file.name!)
+            if (code) {
+              projects[file.name!] = {
+                code,
+                name,
+                year,
+                month: monthFolder.name!,
+                filename: file.name!,
+                fileId: file.id!
+              }
+            }
           }
         }
       }
     }
+  } catch (error) {
+    console.error('Error getting folder structure:', error)
   }
 
   return { folders, projects }
 }
 
-// Load a single project CSV
-function loadProjectData(filename: string, year: string, month: string): FinancialRow[] {
-  const filePath = path.join(DATA_DIR, year, month, filename)
+// Load a single project CSV from Google Drive
+async function loadProjectData(filename: string, year: string, month: string): Promise<FinancialRow[]> {
+  try {
+    const drive = await getDriveService()
+    const rootFolder = await findRootFolder(drive)
+    if (!rootFolder) return []
 
-  if (!fs.existsSync(filePath)) return []
+    const yearFolders = await listYearFolders(drive, rootFolder.id!)
+    const yearFolder = yearFolders.find(f => f.name === year)
+    if (!yearFolder) return []
 
-  const content = fs.readFileSync(filePath, 'utf-8')
-  const parsed = Papa.parse<FinancialRow>(content, { header: true, skipEmptyLines: true })
+    const monthFolders = await listMonthFolders(drive, yearFolder.id!)
+    const monthFolder = monthFolders.find(f => f.name === month)
+    if (!monthFolder) return []
 
-  const { name } = extractProjectInfo(filename)
-  const code = filename.match(/^(\d+)/)?.[1] || ''
-  const projectLabel = `${code} - ${name}`
+    const csvFiles = await listCsvFiles(drive, monthFolder.id!)
+    const targetFile = csvFiles.find(f => f.name === filename)
+    if (!targetFile) return []
 
-  return parsed.data.map(row => ({
-    ...row,
-    Year: year,
-    Month: month,
-    Value: parseFloat(row.Value as unknown as string) || 0,
-    _project: projectLabel
-  }))
+    // Download file
+    const res = await drive.files.get({
+      fileId: targetFile.id!,
+      alt: 'media'
+    }, { responseType: 'text' })
+
+    // Parse CSV
+    const lines = (res.data as string).split('\n')
+    const headers = lines[0].split(',').map(h => h.trim())
+
+    const { name } = extractProjectInfo(filename)
+    const code = filename.match(/^(\d+)/)?.[1] || ''
+    const projectLabel = `${code} - ${name}`
+
+    const data: FinancialRow[] = []
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue
+      const values = lines[i].split(',').map(v => v.trim())
+
+      const row: FinancialRow = {
+        Year: year,
+        Month: month,
+        Sheet_Name: values[0] || '',
+        Financial_Type: values[1] || '',
+        Data_Type: values[2] || '',
+        Item_Code: values[3] || '',
+        Value: parseFloat(values[4]) || 0,
+        _project: projectLabel
+      }
+      data.push(row)
+    }
+
+    return data
+  } catch (error) {
+    console.error('Error loading project data:', error)
+    return []
+  }
 }
 
 // Calculate project metrics
-function getProjectMetrics(data: FinancialRow[], project: string): ProjectMetrics {
+function getProjectMetrics(data: FinancialRow[], project: string) {
   const projectData = data.filter(d => d._project === project)
   if (projectData.length === 0) return { 'Business Plan GP': 0, 'Projected GP': 0, 'WIP GP': 0, 'Cash Flow': 0 }
 
@@ -200,13 +284,11 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
     'contingency': '2.11',
   }
 
-  // Check if monthly query
   if (!expandedQuestion.includes('monthly')) return ''
 
   let categoryPrefix = ''
   let categoryName = ''
 
-  // Find category (longer phrases first)
   const sortedCategories = Object.entries(categoryMap).sort((a, b) => b[0].length - a[0].length)
   for (const [kw, prefix] of sortedCategories) {
     const pattern = new RegExp(`\\b${kw}\\b`, 'i')
@@ -221,7 +303,6 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
 
   const projectData = data.filter(d => d._project === project)
 
-  // Find target month
   const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
   const monthAbbr = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
@@ -233,7 +314,6 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
     }
   }
 
-  // Get data
   const financialTypes = ['Projection', 'Committed Cost', 'Accrual', 'Cash Flow']
   const results: Record<string, number> = {}
 
@@ -246,7 +326,6 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
     results[ft] = filtered.reduce((sum, d) => sum + d.Value, 0)
   }
 
-  // Format response
   const displayName = categoryName.charAt(0).toUpperCase() + categoryName.slice(1)
   let response = `## Monthly ${displayName} (${targetMonth}/${month}) ('000)\n\n`
 
@@ -261,7 +340,6 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
 function answerQuestion(data: FinancialRow[], project: string, question: string, month: string): string {
   const expandedQuestion = expandAcronyms(question).toLowerCase()
 
-  // Check monthly category first
   const monthlyResult = handleMonthlyCategory(data, project, question, month)
   if (monthlyResult) return monthlyResult
 
@@ -270,7 +348,6 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
 
   const targetMonth = parseInt(month)
 
-  // Detect intent
   const isGrossProfit = /gross\s*profit|gp|wip/i.test(expandedQuestion)
   const isNetProfit = /net\s*profit|np/i.test(expandedQuestion)
   const isBudget = /business\s*plan|budget/i.test(expandedQuestion)
@@ -278,19 +355,16 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
   const isAudit = /audit|wip/i.test(expandedQuestion)
   const isCashFlow = /cash\s*flow|cash/i.test(expandedQuestion)
 
-  // Determine financial type
   let financialType = ''
   if (isCashFlow) financialType = 'Cash Flow'
   else if (isAudit) financialType = 'Audit Report (WIP) J'
   else if (isBudget) financialType = 'Business Plan'
   else if (isProjection) financialType = 'Projection'
 
-  // Determine item code
   let itemCode = ''
   if (isNetProfit) itemCode = '7'
   else if (isGrossProfit) itemCode = '3'
 
-  // Find matching data
   let filtered = projectData
 
   if (financialType) {
@@ -329,24 +403,24 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'getStructure': {
-        const { folders, projects } = getFolderStructure()
+        const { folders, projects } = await getFolderStructure()
         return NextResponse.json({ folders, projects })
       }
 
       case 'loadProject': {
-        const data = loadProjectData(projectFile, year, month)
+        const data = await loadProjectData(projectFile, year, month)
         const metrics = getProjectMetrics(data, project)
         return NextResponse.json({ data, metrics })
       }
 
       case 'query': {
-        const data = loadProjectData(projectFile, year, month)
+        const data = await loadProjectData(projectFile, year, month)
         const response = answerQuestion(data, project, question, month)
         return NextResponse.json({ response })
       }
 
       case 'metrics': {
-        const data = loadProjectData(projectFile, year, month)
+        const data = await loadProjectData(projectFile, year, month)
         const metrics = getProjectMetrics(data, project)
         return NextResponse.json({ metrics })
       }
