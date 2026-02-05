@@ -437,7 +437,7 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
 **Top Answer:** $${total.toLocaleString()} ('000) — Score: ${first.score.toFixed(1)}
 
 **All Top 10 Candidates:**
-${candidates.map((c, i) => `${i+1}. **$${c.row.Value.toLocaleString()}** — Score: ${c.score.toFixed(1)}
+${candidates.map((c, i) => `${i+1}. **$${c.row.Value.toLocaleString()}** — Score: ${c.row.score.toFixed(1)}
    Source: ${c.row.Sheet_Name}/${c.row.Financial_Type}/${c.row.Year}/${c.row.Month}/${c.row.Data_Type}/${c.row.Item_Code}`).join('\n')}
 
 *Click a number to select or ask a more specific question.*`
