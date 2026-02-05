@@ -117,7 +117,7 @@ function extractProjectInfo(filename: string): { code: string | null; name: stri
 }
 
 // Get folder structure from Google Drive
-async function getFolderStructure(): Promise<{ folders: FolderStructure; projects: Record<string, ProjectInfo> }> {
+async function getFolderStructure(): Promise<{ folders: FolderStructure; projects: Record<string, ProjectInfo>; error?: string }> {
   const folders: FolderStructure = {}
   const projects: Record<string, ProjectInfo> = {}
 
@@ -126,7 +126,7 @@ async function getFolderStructure(): Promise<{ folders: FolderStructure; project
     const rootFolder = await findRootFolder(drive)
 
     if (!rootFolder) {
-      return { folders, projects }
+      return { folders, projects, error: 'Folder "Ai Chatbot Knowledge Base" not found' }
     }
 
     const yearFolders = await listYearFolders(drive, rootFolder.id!)
@@ -158,8 +158,9 @@ async function getFolderStructure(): Promise<{ folders: FolderStructure; project
         }
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting folder structure:', error)
+    return { folders, projects, error: error.message || 'Unknown error' }
   }
 
   return { folders, projects }
@@ -403,8 +404,18 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'getStructure': {
-        const { folders, projects } = await getFolderStructure()
-        return NextResponse.json({ folders, projects })
+        const result = await getFolderStructure()
+        if (result.error) {
+          return NextResponse.json({ 
+            folders: result.folders, 
+            projects: result.projects,
+            error: result.error 
+          })
+        }
+        return NextResponse.json({ 
+          folders: result.folders, 
+          projects: result.projects 
+        })
       }
 
       case 'loadProject': {

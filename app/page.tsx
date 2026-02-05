@@ -82,20 +82,37 @@ export default function Home() {
         body: JSON.stringify({ action: 'getStructure' })
       })
       const data = await res.json()
+      
+      if (data.error) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `❌ **Error connecting to Google Drive:**\n\n${data.error}\n\n**Check:**\n1. Environment variable GOOGLE_CREDENTIALS is set\n2. Google Drive API is enabled\n3. "Ai Chatbot Knowledge Base" folder is shared with service account`
+        }])
+      }
+      
       setFolders(data.folders)
       setProjects(data.projects)
 
       // Set defaults to latest
-      const years = Object.keys(data.folders).sort().reverse()
+      const years = Object.keys(data.folders || {}).sort().reverse()
       if (years.length > 0) {
         setSelectedYear(years[0])
         const months = data.folders[years[0]].sort((a: string, b: string) => parseInt(b) - parseInt(a))
         if (months.length > 0) {
           setSelectedMonth(months[0])
         }
+      } else if (!data.error) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '⚠️ No data found. Make sure:\n1. Folder "Ai Chatbot Knowledge Base" exists in Google Drive\n2. It contains subfolders with years (e.g., 2025)\n3. Each year folder contains month folders with _flat.csv files'
+        }])
       }
     } catch (error) {
       console.error('Error loading structure:', error)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ **Connection Error:** ${error}`
+      }])
     } finally {
       setIsLoadingStructure(false)
     }
@@ -192,9 +209,15 @@ export default function Home() {
   if (isLoadingStructure) {
     return (
       <main className="flex h-screen bg-gradient-to-br from-slate-900 to-slate-800 items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md mx-auto px-6">
           <Loader2 className="w-10 h-10 text-blue-400 animate-spin mx-auto mb-4" />
-          <p className="text-slate-400">Loading financial data structure...</p>
+          <p className="text-slate-400">Connecting to Google Drive...</p>
+          <p className="text-slate-500 text-sm mt-2">If this takes too long, check:</p>
+          <ul className="text-slate-500 text-sm mt-2 text-left list-disc list-inside">
+            <li>GOOGLE_CREDENTIALS env var is set</li>
+            <li>Google Drive API is enabled</li>
+            <li>Folder is shared with service account</li>
+          </ul>
         </div>
       </main>
     )
