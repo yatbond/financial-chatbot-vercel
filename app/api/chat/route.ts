@@ -475,8 +475,8 @@ export async function POST(request: NextRequest) {
           source: `Google Drive: Ai Chatbot Knowledge Base/${year}/${month}/${projectFile}`,
           totalRows: data.length,
           sampleRows: data.slice(0, 5),
-          uniqueSheets: [...new Set(data.map(d => d.Sheet_Name))],
-          uniqueFinancialTypes: [...new Set(data.map(d => d.Financial_Type))],
+          uniqueSheets: Array.from(new Set(data.map(d => d.Sheet_Name))),
+          uniqueFinancialTypes: Array.from(new Set(data.map(d => d.Financial_Type))),
           gpRows: data.filter(d => d.Item_Code === '3' && d.Data_Type?.toLowerCase().includes('gross profit'))
         }
         
