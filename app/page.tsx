@@ -117,6 +117,12 @@ export default function Home() {
     if (!selectedProject || !selectedFile || !selectedYear || !selectedMonth) return
 
     setIsLoadingProject(true)
+    
+    // Add loading message
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `⏳ Loading **${selectedProject}**...`
+    }])
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -248,10 +254,52 @@ export default function Home() {
               ))}
             </select>
 
+            {/* Project Search */}
+            <input
+              type="text"
+              placeholder="Search project name..."
+              list="project-list"
+              value={selectedProject}
+              onChange={(e) => {
+                const val = e.target.value
+                setSelectedProject(val)
+                // Check if it's a full match
+                const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
+                if (found) {
+                  setSelectedFile(found.filename)
+                  loadProject()
+                }
+              }}
+              onBlur={() => {
+                // If partial match, find the first matching project
+                if (selectedProject && !availableProjects.find(p => `${p.code} - ${p.name}` === selectedProject)) {
+                  const found = availableProjects.find(p => 
+                    `${p.code} - ${p.name}`.toLowerCase().includes(selectedProject.toLowerCase())
+                  )
+                  if (found) {
+                    setSelectedProject(`${found.code} - ${found.name}`)
+                    setSelectedFile(found.filename)
+                    loadProject()
+                  }
+                }
+              }}
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
+            />
+            <datalist id="project-list">
+              {availableProjects
+                .sort((a, b) => parseInt(a.code) - parseInt(b.code))
+                .map(p => (
+                  <option key={p.filename} value={`${p.code} - ${p.name}`}>
+                    {p.code} {p.name}
+                  </option>
+                ))}
+            </datalist>
+
+            {/* Quick select dropdown */}
             <select
               value={selectedProject}
               onChange={handleProjectSelect}
-              disabled={isLoadingProject}
+              disabled={isLoadingProject || availableProjects.length === 0}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
             >
               <option value="">-- Select Project --</option>
@@ -271,6 +319,7 @@ export default function Home() {
           <div className="mt-3 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-green-400" />
             <span className="text-green-400 text-sm font-medium">{selectedProject}</span>
+            {isLoadingProject && <Loader2 className="w-4 h-4 text-blue-400 animate-spin ml-auto" />}
           </div>
         )}
 
