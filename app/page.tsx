@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Send, Bot, User, FileSpreadsheet, TrendingUp, ChevronDown, Loader2, Calendar, Building2 } from 'lucide-react'
+import { Send, Bot, User, FileSpreadsheet, Loader2, Calendar, Building2 } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -38,7 +38,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingProject, setIsLoadingProject] = useState(false)
 
-  // Selection state
   const [folders, setFolders] = useState<FolderStructure>({})
   const [projects, setProjects] = useState<Record<string, ProjectInfo>>({})
   const [selectedYear, setSelectedYear] = useState('')
@@ -113,19 +112,16 @@ export default function Home() {
     }
   }
 
-  const loadProject = async (file?: string, projectName?: string) => {
-    const targetFile = file || selectedFile
-    const targetProject = projectName || selectedProject
-    
-    if (!targetProject || !targetFile || !selectedYear || !selectedMonth) return
+  const loadProjectData = async (file: string, projectName: string) => {
+    if (!selectedYear || !selectedMonth) return
 
     setIsLoadingProject(true)
     
-    // Add loading message
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `⏳ Loading **${targetProject}**...`
+      content: `⏳ Loading **${projectName}**...`
     }])
+    
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -134,45 +130,19 @@ export default function Home() {
           action: 'loadProject',
           year: selectedYear,
           month: selectedMonth,
-          project: targetProject,
-          projectFile: targetFile
+          project: projectName,
+          projectFile: file
         })
       })
       const data = await res.json()
       setMetrics(data.metrics)
       setShowFilters(false)
-      setSelectedProject(targetProject)
-      setSelectedFile(targetFile)
+      setSelectedProject(projectName)
+      setSelectedFile(file)
 
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `✅ **${targetProject}**\n\n📊 Key Metrics ('000):\n• BP GP: $${data.metrics['Business Plan GP'].toLocaleString()}\n• Proj GP: $${data.metrics['Projected GP'].toLocaleString()}\n• WIP GP: $${data.metrics['WIP GP'].toLocaleString()}\n• Cash Flow: $${data.metrics['Cash Flow'].toLocaleString()}`
-      }])
-    } catch (error) {
-      console.error('Error loading project:', error)
-    } finally {
-      setIsLoadingProject(false)
-    }
-  }
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'loadProject',
-          year: selectedYear,
-          month: selectedMonth,
-          project: selectedProject,
-          projectFile: selectedFile
-        })
-      })
-      const data = await res.json()
-      setMetrics(data.metrics)
-      setShowFilters(false)
-
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ **${selectedProject}**\n\n📊 Key Metrics ('000):\n• BP GP: $${data.metrics['Business Plan GP'].toLocaleString()}\n• Proj GP: $${data.metrics['Projected GP'].toLocaleString()}\n• WIP GP: $${data.metrics['WIP GP'].toLocaleString()}\n• Cash Flow: $${data.metrics['Cash Flow'].toLocaleString()}`
+        content: `✅ **${projectName}**\n\n📊 Key Metrics ('000):\n• BP GP: $${data.metrics['Business Plan GP'].toLocaleString()}\n• Proj GP: $${data.metrics['Projected GP'].toLocaleString()}\n• WIP GP: $${data.metrics['WIP GP'].toLocaleString()}\n• Cash Flow: $${data.metrics['Cash Flow'].toLocaleString()}`
       }])
     } catch (error) {
       console.error('Error loading project:', error)
@@ -224,6 +194,24 @@ export default function Home() {
     }
   }
 
+  const handleProjectSearch = (val: string) => {
+    setSelectedProject(val)
+    const found = availableProjects.find(p => 
+      `${p.code} - ${p.name}`.toLowerCase().includes(val.toLowerCase())
+    )
+    if (found) {
+      loadProjectData(found.filename, `${found.code} - ${found.name}`)
+    }
+  }
+
+  const handleProjectSelect = (val: string) => {
+    setSelectedProject(val)
+    const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
+    if (found) {
+      loadProjectData(found.filename, val)
+    }
+  }
+
   if (isLoading) {
     return (
       <main className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -237,7 +225,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-900 flex flex-col">
-      {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -252,7 +239,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Collapsible Filters */}
         {showFilters && (
           <div className="mt-4 space-y-3">
             <select
@@ -275,55 +261,17 @@ export default function Home() {
               ))}
             </select>
 
-            {/* Project Search & Select */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search project name..."
-                value={selectedProject}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setSelectedProject(val)
-                  // Find matching project
-                  const found = availableProjects.find(p => 
-                    `${p.code} - ${p.name}`.toLowerCase().includes(val.toLowerCase())
-                  )
-                  if (found) {
-                    setSelectedFile(found.filename)
-                    loadProject(found.filename, `${found.code} - ${found.name}`)
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && selectedProject) {
-                    const found = availableProjects.find(p => 
-                      `${p.code} - ${p.name}`.toLowerCase().includes(selectedProject.toLowerCase())
-                    )
-                    if (found) {
-                      setSelectedProject(`${found.code} - ${found.name}`)
-                      setSelectedFile(found.filename)
-                      loadProject(found.filename, `${found.code} - ${found.name}`)
-                    }
-                  }
-                }}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white pr-20"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                ↵ Enter
-              </span>
-            </div>
+            <input
+              type="text"
+              placeholder="Search project name..."
+              value={selectedProject}
+              onChange={(e) => handleProjectSearch(e.target.value)}
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
+            />
 
-            {/* Quick select dropdown */}
             <select
               value={selectedProject}
-              onChange={(e) => {
-                const val = e.target.value
-                setSelectedProject(val)
-                const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
-                if (found) {
-                  setSelectedFile(found.filename)
-                  loadProject(found.filename, val)
-                }
-              }}
+              onChange={(e) => handleProjectSelect(e.target.value)}
               disabled={isLoadingProject || availableProjects.length === 0}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
             >
@@ -339,7 +287,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Selected Project Badge */}
         {selectedProject && (
           <div className="mt-3 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-green-400" />
@@ -348,7 +295,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Quick Metrics */}
         {metrics && (
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-700/50 rounded px-2 py-1">
@@ -371,7 +317,6 @@ export default function Home() {
         )}
       </header>
 
-      {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, i) => (
           <div key={i} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -406,7 +351,6 @@ export default function Home() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="p-4 border-t border-slate-700 bg-slate-800/50">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
