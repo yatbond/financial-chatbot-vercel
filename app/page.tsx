@@ -113,16 +113,47 @@ export default function Home() {
     }
   }
 
-  const loadProject = async () => {
-    if (!selectedProject || !selectedFile || !selectedYear || !selectedMonth) return
+  const loadProject = async (file?: string, projectName?: string) => {
+    const targetFile = file || selectedFile
+    const targetProject = projectName || selectedProject
+    
+    if (!targetProject || !targetFile || !selectedYear || !selectedMonth) return
 
     setIsLoadingProject(true)
     
     // Add loading message
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `⏳ Loading **${selectedProject}**...`
+      content: `⏳ Loading **${targetProject}**...`
     }])
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'loadProject',
+          year: selectedYear,
+          month: selectedMonth,
+          project: targetProject,
+          projectFile: targetFile
+        })
+      })
+      const data = await res.json()
+      setMetrics(data.metrics)
+      setShowFilters(false)
+      setSelectedProject(targetProject)
+      setSelectedFile(targetFile)
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ **${targetProject}**\n\n📊 Key Metrics ('000):\n• BP GP: $${data.metrics['Business Plan GP'].toLocaleString()}\n• Proj GP: $${data.metrics['Projected GP'].toLocaleString()}\n• WIP GP: $${data.metrics['WIP GP'].toLocaleString()}\n• Cash Flow: $${data.metrics['Cash Flow'].toLocaleString()}`
+      }])
+    } catch (error) {
+      console.error('Error loading project:', error)
+    } finally {
+      setIsLoadingProject(false)
+    }
+  }
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -254,51 +285,55 @@ export default function Home() {
               ))}
             </select>
 
-            {/* Project Search */}
-            <input
-              type="text"
-              placeholder="Search project name..."
-              list="project-list"
-              value={selectedProject}
-              onChange={(e) => {
-                const val = e.target.value
-                setSelectedProject(val)
-                // Check if it's a full match
-                const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
-                if (found) {
-                  setSelectedFile(found.filename)
-                  loadProject()
-                }
-              }}
-              onBlur={() => {
-                // If partial match, find the first matching project
-                if (selectedProject && !availableProjects.find(p => `${p.code} - ${p.name}` === selectedProject)) {
+            {/* Project Search & Select */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search project name..."
+                value={selectedProject}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setSelectedProject(val)
+                  // Find matching project
                   const found = availableProjects.find(p => 
-                    `${p.code} - ${p.name}`.toLowerCase().includes(selectedProject.toLowerCase())
+                    `${p.code} - ${p.name}`.toLowerCase().includes(val.toLowerCase())
                   )
                   if (found) {
-                    setSelectedProject(`${found.code} - ${found.name}`)
                     setSelectedFile(found.filename)
-                    loadProject()
+                    loadProject(found.filename, `${found.code} - ${found.name}`)
                   }
-                }
-              }}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-            />
-            <datalist id="project-list">
-              {availableProjects
-                .sort((a, b) => parseInt(a.code) - parseInt(b.code))
-                .map(p => (
-                  <option key={p.filename} value={`${p.code} - ${p.name}`}>
-                    {p.code} {p.name}
-                  </option>
-                ))}
-            </datalist>
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && selectedProject) {
+                    const found = availableProjects.find(p => 
+                      `${p.code} - ${p.name}`.toLowerCase().includes(selectedProject.toLowerCase())
+                    )
+                    if (found) {
+                      setSelectedProject(`${found.code} - ${found.name}`)
+                      setSelectedFile(found.filename)
+                      loadProject(found.filename, `${found.code} - ${found.name}`)
+                    }
+                  }
+                }}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white pr-20"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                ↵ Enter
+              </span>
+            </div>
 
             {/* Quick select dropdown */}
             <select
               value={selectedProject}
-              onChange={handleProjectSelect}
+              onChange={(e) => {
+                const val = e.target.value
+                setSelectedProject(val)
+                const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
+                if (found) {
+                  setSelectedFile(found.filename)
+                  loadProject(found.filename, val)
+                }
+              }}
               disabled={isLoadingProject || availableProjects.length === 0}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
             >
