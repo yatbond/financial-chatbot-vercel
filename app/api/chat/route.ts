@@ -218,10 +218,24 @@ async function loadProjectData(filename: string, year: string, month: string): P
       alt: 'media'
     }, { responseType: 'text' })
 
-    // Parse CSV
+    // Parse CSV properly using headers
     const lines = (res.data as string).split('\n')
-    const headers = lines[0].split(',').map(h => h.trim())
-
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+    
+    // Find column indices from header
+    const colMap: Record<string, number> = {}
+    headers.forEach((h, i) => {
+      const lower = h.toLowerCase()
+      if (lower === 'sheet_name' || lower === 'sheet') colMap.sheet = i
+      else if (lower === 'financial_type' || lower === 'type') colMap.financialType = i
+      else if (lower === 'data_type' || lower === 'data') colMap.dataType = i
+      else if (lower === 'item_code' || lower === 'code') colMap.itemCode = i
+      else if (lower === 'value' || lower === 'amount') colMap.value = i
+    })
+    
+    console.log('CSV Headers:', headers)
+    console.log('Column mapping:', colMap)
+    
     const { name } = extractProjectInfo(filename)
     const code = filename.match(/^(\d+)/)?.[1] || ''
     const projectLabel = `${code} - ${name}`
@@ -229,21 +243,41 @@ async function loadProjectData(filename: string, year: string, month: string): P
     const data: FinancialRow[] = []
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue
-      const values = lines[i].split(',').map(v => v.trim())
-
+      
+      // Handle quoted CSV values
+      const values: string[] = []
+      let inQuote = false
+      let current = ''
+      for (let j = 0; j < lines[i].length; j++) {
+        const char = lines[i][j]
+        if (char === '"') {
+          inQuote = !inQuote
+        } else if (char === ',' && !inQuote) {
+          values.push(current.trim().replace(/"/g, ''))
+          current = ''
+        } else {
+          current += char
+        }
+      }
+      values.push(current.trim().replace(/"/g, ''))
+      
+      const valueIndex = colMap.value ?? 4
+      const value = parseFloat(values[valueIndex]) || 0
+      
       const row: FinancialRow = {
         Year: year,
         Month: month,
-        Sheet_Name: values[0] || '',
-        Financial_Type: values[1] || '',
-        Data_Type: values[2] || '',
-        Item_Code: values[3] || '',
-        Value: parseFloat(values[4]) || 0,
+        Sheet_Name: values[colMap.sheet ?? 0] || '',
+        Financial_Type: values[colMap.financialType ?? 1] || '',
+        Data_Type: values[colMap.dataType ?? 2] || '',
+        Item_Code: values[colMap.itemCode ?? 3] || '',
+        Value: value,
         _project: projectLabel
       }
       data.push(row)
     }
-
+    
+    console.log(`Parsed ${data.length} rows, sample:`, data.slice(0, 3))
     return data
   } catch (error) {
     console.error('Error loading project data:', error)
