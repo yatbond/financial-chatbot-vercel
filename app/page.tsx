@@ -224,16 +224,6 @@ export default function Home() {
     }
   }
 
-  const handleProjectSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const projectName = e.target.value
-    setSelectedProject(projectName)
-    const found = availableProjects.find(p => `${p.code} - ${p.name}` === projectName)
-    if (found) {
-      setSelectedFile(found.filename)
-      loadProject()
-    }
-  }
-
   if (isLoading) {
     return (
       <main className="min-h-screen bg-slate-900 flex items-center justify-center">
