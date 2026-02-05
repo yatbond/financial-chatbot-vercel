@@ -77,30 +77,57 @@ async function findRootFolder(drive: any) {
 }
 
 async function listYearFolders(drive: any, rootId: string) {
-  const res = await drive.files.list({
-    q: `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id, name)',
-    pageSize: 100
-  })
-  return res.data.files || []
+  const allFiles: any[] = []
+  let pageToken: string | null = null
+  
+  do {
+    const res = await drive.files.list({
+      q: `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id, name), nextPageToken',
+      pageSize: 100,
+      pageToken: pageToken || undefined
+    })
+    if (res.data.files) allFiles.push(...res.data.files)
+    pageToken = res.data.nextPageToken || null
+  } while (pageToken)
+  
+  return allFiles
 }
 
 async function listMonthFolders(drive: any, yearId: string) {
-  const res = await drive.files.list({
-    q: `'${yearId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id, name)',
-    pageSize: 100
-  })
-  return res.data.files || []
+  const allFiles: any[] = []
+  let pageToken: string | null = null
+  
+  do {
+    const res = await drive.files.list({
+      q: `'${yearId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id, name), nextPageToken',
+      pageSize: 100,
+      pageToken: pageToken || undefined
+    })
+    if (res.data.files) allFiles.push(...res.data.files)
+    pageToken = res.data.nextPageToken || null
+  } while (pageToken)
+  
+  return allFiles
 }
 
 async function listCsvFiles(drive: any, monthId: string) {
-  const res = await drive.files.list({
-    q: `'${monthId}' in parents and name contains '_flat.csv' and trashed=false`,
-    fields: 'files(id, name)',
-    pageSize: 100
-  })
-  return res.data.files || []
+  const allFiles: any[] = []
+  let pageToken: string | null = null
+  
+  do {
+    const res = await drive.files.list({
+      q: `'${monthId}' in parents and name contains '_flat.csv' and trashed=false`,
+      fields: 'files(id, name), nextPageToken',
+      pageSize: 100,
+      pageToken: pageToken || undefined
+    })
+    if (res.data.files) allFiles.push(...res.data.files)
+    pageToken = res.data.nextPageToken || null
+  } while (pageToken)
+  
+  return allFiles
 }
 
 // Extract project code and name from filename
