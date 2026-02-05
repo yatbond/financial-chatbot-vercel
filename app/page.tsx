@@ -45,6 +45,7 @@ export default function Home() {
   const [availableProjects, setAvailableProjects] = useState<ProjectInfo[]>([])
   const [selectedProject, setSelectedProject] = useState('')
   const [selectedFile, setSelectedFile] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [showFilters, setShowFilters] = useState(false)
 
@@ -194,8 +195,16 @@ export default function Home() {
     }
   }
 
+  // Filter projects based on search query
+  const filteredProjects = searchQuery
+    ? availableProjects.filter(p => 
+        `${p.code} - ${p.name}`.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : availableProjects
+
   const handleProjectSelect = (val: string) => {
     setSelectedProject(val)
+    setSearchQuery('')
     const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
     if (found) {
       loadProjectData(found.filename, val)
@@ -254,19 +263,19 @@ export default function Home() {
             <input
               type="text"
               placeholder="Search project name..."
-              value={selectedProject}
-              onChange={(e) => setSelectedProject(e.target.value)}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
             />
 
             <select
               value={selectedProject}
               onChange={(e) => handleProjectSelect(e.target.value)}
-              disabled={isLoadingProject || availableProjects.length === 0}
+              disabled={isLoadingProject || filteredProjects.length === 0}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
             >
               <option value="">-- Select Project --</option>
-              {availableProjects
+              {filteredProjects
                 .sort((a, b) => parseInt(a.code) - parseInt(b.code))
                 .map(p => (
                   <option key={p.filename} value={`${p.code} - ${p.name}`}>
