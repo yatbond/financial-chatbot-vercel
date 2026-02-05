@@ -249,16 +249,17 @@ async function loadProjectData(filename: string, year: string, month: string): P
       const firstValue = values[0]?.toLowerCase()
       if (i === 0 && (firstValue === 'year' || firstValue === 'sheet_name')) continue
       
-      // Fixed column positions:
-      // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Type, 4: Item_Code, 5: Data_Type, 6: Value
+      // Fixed column positions (7 columns per user):
+      // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Name, 4: Financial_Type, 5: Item_Code, 6: Data-Type (VALUE)
       const value = parseFloat(values[6]) || 0
       
       const row: FinancialRow = {
         Year: values[0] || '',
         Month: values[1] || '',
         Sheet_Name: values[2] || '',
-        Financial_Type: values[3] || '',
-        Data_Type: values[4] || '',
+        Financial_Name: values[3] || '',    // Extra column (not used)
+        Financial_Type: values[4] || '',
+        Data_Type: values[5] || '',      // Actually Item_Code?
         Item_Code: values[5] || '',
         Value: value,
         _project: projectLabel
@@ -474,10 +475,17 @@ export async function POST(request: NextRequest) {
         const debug = {
           source: `Google Drive: Ai Chatbot Knowledge Base/${year}/${month}/${projectFile}`,
           totalRows: data.length,
-          sampleRows: data.slice(0, 5),
+          sampleRows: data.slice(0, 5).map(d => ({
+            Sheet_Name: d.Sheet_Name,
+            Financial_Type: d.Financial_Type,
+            Data_Type: d.Data_Type,
+            Item_Code: d.Item_Code,
+            Value: d.Value
+          })),
           uniqueSheets: Array.from(new Set(data.map(d => d.Sheet_Name))),
           uniqueFinancialTypes: Array.from(new Set(data.map(d => d.Financial_Type))),
-          gpRows: data.filter(d => d.Item_Code === '3' && d.Data_Type?.toLowerCase().includes('gross profit'))
+          uniqueItemCodes: Array.from(new Set(data.map(d => d.Item_Code))),
+          gpRowsCount: data.filter(d => d.Item_Code === '3' && d.Data_Type?.toLowerCase().includes('gross profit')).length
         }
         
         return NextResponse.json({ data, metrics, debug })

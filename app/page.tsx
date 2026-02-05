@@ -143,7 +143,7 @@ export default function Home() {
 
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `✅ **${projectName}**\n\n📊 Key Metrics ('000):\n• BP GP: $${data.metrics['Business Plan GP'].toLocaleString()}\n• Proj GP: $${data.metrics['Projected GP'].toLocaleString()}\n• WIP GP: $${data.metrics['WIP GP'].toLocaleString()}\n• Cash Flow: $${data.metrics['Cash Flow'].toLocaleString()}\n\n📁 **Source:** ${data.debug?.source || 'N/A'}\n📋 **Rows:** ${data.debug?.totalRows || 0}\n📑 **Sheets:** ${data.debug?.uniqueSheets?.join(', ') || 'N/A'}`
+        content: `✅ **${projectName}**\n\n📊 Key Metrics ('000):\n• BP GP: $${data.metrics['Business Plan GP'].toLocaleString()}\n• Proj GP: $${data.metrics['Projected GP'].toLocaleString()}\n• WIP GP: $${data.metrics['WIP GP'].toLocaleString()}\n• Cash Flow: $${data.metrics['Cash Flow'].toLocaleString()}\n\n📁 **Source:** ${data.debug?.source || 'N/A'}\n📋 **Rows:** ${data.debug?.totalRows || 0}\n📑 **Sheets:** ${data.debug?.uniqueSheets?.join(', ') || 'N/A'}\n🔢 **Item_Codes:** ${data.debug?.uniqueItemCodes?.join(', ') || 'N/A'}\n🔍 **GP Rows (Item=3, Data=gro...):** ${data.debug?.gpRowsCount || 0}`
       }])
     } catch (error) {
       console.error('Error loading project:', error)
