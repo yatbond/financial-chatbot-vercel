@@ -194,16 +194,6 @@ export default function Home() {
     }
   }
 
-  const handleProjectSearch = (val: string) => {
-    setSelectedProject(val)
-    const found = availableProjects.find(p => 
-      `${p.code} - ${p.name}`.toLowerCase().includes(val.toLowerCase())
-    )
-    if (found) {
-      loadProjectData(found.filename, `${found.code} - ${found.name}`)
-    }
-  }
-
   const handleProjectSelect = (val: string) => {
     setSelectedProject(val)
     const found = availableProjects.find(p => `${p.code} - ${p.name}` === val)
@@ -265,7 +255,7 @@ export default function Home() {
               type="text"
               placeholder="Search project name..."
               value={selectedProject}
-              onChange={(e) => handleProjectSearch(e.target.value)}
+              onChange={(e) => setSelectedProject(e.target.value)}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
             />
 
