@@ -410,7 +410,7 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
   return response
 }
 
-// Natural language query handler
+// Natural language query handler - Fuzzy Search Version
 function answerQuestion(data: FinancialRow[], project: string, question: string, month: string): string {
   const expandedQuestion = expandAcronyms(question).toLowerCase()
 
@@ -420,36 +420,74 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
   const projectData = data.filter(d => d._project === project)
   if (projectData.length === 0) return 'No data found for this project.'
 
-  const targetMonth = parseInt(month)
-
-  const isGrossProfit = /gross\s*profit|gp|wip/i.test(expandedQuestion)
-  const isNetProfit = /net\s*profit|np/i.test(expandedQuestion)
-  const isBudget = /business\s*plan|budget/i.test(expandedQuestion)
-  const isProjection = /projection|projected/i.test(expandedQuestion)
-  const isAudit = /audit|wip/i.test(expandedQuestion)
-  const isCashFlow = /cash\s*flow|cash/i.test(expandedQuestion)
-
-  let financialType = ''
-  if (isCashFlow) financialType = 'Cash Flow'
-  else if (isAudit) financialType = 'Audit Report (WIP) J'
-  else if (isBudget) financialType = 'Business Plan'
-  else if (isProjection) financialType = 'Projection'
-
-  let itemCode = ''
-  if (isNetProfit) itemCode = '7'
-  else if (isGrossProfit) itemCode = '3'
-
-  let filtered = projectData
-
-  if (financialType) {
-    filtered = filtered.filter(d => d.Financial_Type?.toLowerCase().includes(financialType.toLowerCase()))
+  // Use fuzzy search to find best matches
+  const candidates = findFuzzyMatches(projectData, expandedQuestion, 10)
+  
+  if (candidates.length === 0) {
+    return `No data found for "${question}".`
   }
 
-  if (itemCode) {
-    filtered = filtered.filter(d => d.Item_Code === itemCode)
-  }
+  // Get top 3 for quick answer
+  const top3 = candidates.slice(0, 3)
+  const total = top3.reduce((sum, c) => sum + c.row.Value, 0)
+  const first = top3[0].row
 
-  filtered = filtered.filter(d => d.Month === String(targetMonth))
+  return `## Fuzzy Search Results ("${question}")
+
+**Top Answer:** $${total.toLocaleString()} ('000) — Score: ${first.score.toFixed(1)}
+
+**All Top 10 Candidates:**
+${candidates.map((c, i) => `${i+1}. **$${c.row.Value.toLocaleString()}** — Score: ${c.score.toFixed(1)}
+   Source: ${c.row.Sheet_Name}/${c.row.Financial_Type}/${c.row.Year}/${c.row.Month}/${c.row.Data_Type}/${c.row.Item_Code}`).join('\n')}
+
+*Click a number to select or ask a more specific question.*`
+}
+
+// Fuzzy match scoring system
+interface Candidate {
+  row: FinancialRow & { score: number }
+  matchedFields: string[]
+}
+
+function findFuzzyMatches(data: FinancialRow[], question: string, limit: number): Candidate[] {
+  const keywords = question.toLowerCase().split(/\s+/).filter(w => w.length > 1)
+  
+  const scored = data.map(row => {
+    let score = 0
+    const matchedFields: string[] = []
+    const rowText = `${row.Sheet_Name} ${row.Financial_Type} ${row.Data_Type} ${row.Item_Code} ${row.Month}`.toLowerCase()
+    
+    for (const kw of keywords) {
+      // Exact field matches (high weight)
+      if (row.Sheet_Name.toLowerCase().includes(kw)) { score += 30; matchedFields.push('Sheet') }
+      if (row.Financial_Type.toLowerCase().includes(kw)) { score += 25; matchedFields.push('FinType') }
+      if (row.Data_Type.toLowerCase().includes(kw)) { score += 25; matchedFields.push('DataType') }
+      if (row.Item_Code.toLowerCase().includes(kw)) { score += 20; matchedFields.push('Item') }
+      
+      // Partial/contains matches (lower weight)
+      if (rowText.includes(kw)) { score += 5 }
+      
+      // Acronym expansions
+      if (kw === 'gp' && (row.Data_Type.toLowerCase().includes('gross') || row.Item_Code === '3')) { score += 40; matchedFields.push('GP') }
+      if (kw === 'np' && (row.Data_Type.toLowerCase().includes('net') || row.Item_Code === '7')) { score += 40; matchedFields.push('NP') }
+      if (kw === 'wip' && row.Financial_Type.toLowerCase().includes('audit')) { score += 35; matchedFields.push('WIP') }
+      if ((kw === 'budget' || kw === 'bp') && row.Financial_Type.toLowerCase().includes('business')) { score += 35; matchedFields.push('BP') }
+      if ((kw === 'proj' || kw === 'projection') && row.Financial_Type.toLowerCase().includes('projection')) { score += 35; matchedFields.push('Proj') }
+      if (kw === 'cf' && row.Financial_Type.toLowerCase().includes('cash')) { score += 35; matchedFields.push('CF') }
+    }
+    
+    // Boost for recent months
+    const monthMatch = keywords.find(kw => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(kw))
+    if (monthMatch && row.Month.toLowerCase().includes(monthMatch)) { score += 15; matchedFields.push('Month') }
+    
+    return { row: { ...row, score }, matchedFields }
+  })
+  
+  // Sort by score descending
+  scored.sort((a, b) => b.row.score - a.row.score)
+  
+  return scored.slice(0, limit)
+}
 
   if (filtered.length === 0) {
     return `No data found for "${question}" in month ${targetMonth}.`
