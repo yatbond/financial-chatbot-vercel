@@ -249,17 +249,42 @@ async function loadProjectData(filename: string, year: string, month: string): P
       const firstValue = values[0]?.toLowerCase()
       if (i === 0 && (firstValue === 'year' || firstValue === 'sheet_name')) continue
       
-      // Fixed column positions (7 columns per user):
-      // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Name, 4: Financial_Type, 5: Item_Code, 6: Value (Data-Type)
-      const value = parseFloat(values[6]) || 0
+      // Parse each column
+      // Looking for patterns: "gross profit", "net profit", "income", etc.
+      
+      // Find "gross profit" in any column for Data_Type
+      let dataType = ''
+      for (let j = 3; j < values.length; j++) {
+        const v = values[j]?.toLowerCase() || ''
+        if (v.includes('gross profit') || v.includes('net profit') || v.includes('original contract')) {
+          dataType = values[j] || ''
+          break
+        }
+      }
+      
+      // Find numeric Item_Code (like "1", "2", "3", etc.) in any column
+      let itemCode = ''
+      for (let j = 3; j < values.length; j++) {
+        const v = values[j]?.trim() || ''
+        // Check if it's a simple number like "1", "2", "3", etc.
+        if (/^[0-9]+(\.[0-9]+)?$/.test(v) && v !== '0' && v !== '0.00') {
+          itemCode = v
+          break
+        }
+      }
+      
+      // Financial_Type should be values[3] (Budget Tender, 1st Working Budget, etc.)
+      const financialType = values[3] || ''
+      
+      const value = parseFloat(values[values.length - 1]) || 0
       
       const row: FinancialRow = {
         Year: values[0] || '',
         Month: values[1] || '',
         Sheet_Name: values[2] || '',
-        Financial_Type: values[3] || '',  // Column 3: Financial_Name → use as Financial_Type
-        Data_Type: values[4] || '',      // Column 4: Financial_Type → use as Data_Type
-        Item_Code: values[5] || '',    // Column 5: Item_Code
+        Financial_Type: financialType,
+        Data_Type: dataType || '',
+        Item_Code: itemCode,
         Value: value,
         _project: projectLabel
       }
@@ -474,18 +499,22 @@ export async function POST(request: NextRequest) {
         const debug = {
           source: `Google Drive: Ai Chatbot Knowledge Base/${year}/${month}/${projectFile}`,
           totalRows: data.length,
+          // Show raw values from CSV
           sampleRows: data.slice(0, 3).map(d => ({
             Sheet: d.Sheet_Name,
             FinType: d.Financial_Type,
-            DataType: d.Data_Type,
             Item: d.Item_Code,
+            Data: d.Data_Type,
             Value: d.Value
           })),
           uniqueSheets: Array.from(new Set(data.map(d => d.Sheet_Name))),
           uniqueFinancialTypes: Array.from(new Set(data.map(d => d.Financial_Type))),
           uniqueItemCodes: Array.from(new Set(data.map(d => d.Item_Code))),
           uniqueDataTypes: Array.from(new Set(data.map(d => d.Data_Type))),
-          gpRowsCount: data.filter(d => d.Item_Code === '3' && d.Data_Type?.toLowerCase().includes('gross profit')).length
+          gpRowsCount: data.filter(d => 
+            d.Item_Code === '3' && 
+            d.Data_Type?.toLowerCase().includes('gross profit')
+          ).length
         }
         
         return NextResponse.json({ data, metrics, debug })
