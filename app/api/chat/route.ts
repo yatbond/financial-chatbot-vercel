@@ -5,7 +5,10 @@ import { google } from 'googleapis'
 const ACRONYM_MAP: Record<string, string> = {
   'gp': 'gross profit',
   'np': 'net profit',
+  'wip': 'audit report (wip)',
   'subcon': 'subcontractor',
+  'sub': 'subcontractor',
+  'subcontractor': 'subcontractor',
   'projected': 'projection',
   'rebar': 'reinforcement',
   'staff': 'manpower (mgt. & supervision)',
@@ -19,12 +22,17 @@ const ACRONYM_MAP: Record<string, string> = {
   'plant': 'plant and machinery',
   'machinery': 'plant and machinery',
   'lab': 'labour',
-  'manpower': 'manpower (labour) for works',
 }
 
 function expandAcronyms(text: string): string {
   const words = text.toLowerCase().split(/\s+/)
   return words.map(word => ACRONYM_MAP[word] || word).join(' ')
+}
+
+// Helper to convert Value to number safely
+function toNumber(val: number | string): number {
+  if (typeof val === 'number') return val
+  return parseFloat(val) || 0
 }
 
 interface FinancialRow {
@@ -34,7 +42,7 @@ interface FinancialRow {
   Financial_Type: string
   Data_Type: string
   Item_Code: string
-  Value: number
+  Value: number | string
   _project?: string
 }
 
@@ -249,34 +257,30 @@ async function loadProjectData(filename: string, year: string, month: string): P
       const firstValue = values[0]?.toLowerCase()
       if (i === 0 && (firstValue === 'year' || firstValue === 'sheet_name')) continue
       
-      // Parse each column
-      // Looking for patterns: "gross profit", "net profit", "income", etc.
+      // Parse each column - columns are at fixed positions:
+      // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Type, 4: Item_Code, 5: Data_Type, 6: Value
       
-      // Find "gross profit" in any column for Data_Type
-      let dataType = ''
-      for (let j = 3; j < values.length; j++) {
-        const v = values[j]?.toLowerCase() || ''
-        if (v.includes('gross profit') || v.includes('net profit') || v.includes('original contract')) {
-          dataType = values[j] || ''
-          break
-        }
-      }
+      // Extract Data_Type directly from column 5 (not pattern matching)
+      const dataType = values[5] || ''
       
-      // Find numeric Item_Code (like "1", "2", "3", etc.) in any column
-      let itemCode = ''
-      for (let j = 3; j < values.length; j++) {
-        const v = values[j]?.trim() || ''
-        // Check if it's a simple number like "1", "2", "3", etc.
-        if (/^[0-9]+(\.[0-9]+)?$/.test(v) && v !== '0' && v !== '0.00') {
-          itemCode = v
-          break
-        }
-      }
+      // Extract Item_Code from column 4
+      const itemCode = values[4] || ''
       
-      // Financial_Type should be values[3] (Budget Tender, 1st Working Budget, etc.)
+      // Financial_Type from column 3
       const financialType = values[3] || ''
       
-      const value = parseFloat(values[values.length - 1]) || 0
+      // For Project Info (Financial_Type = "General"), keep values as strings (dates, percentages)
+      // For financial data, parse as numbers
+      const rawValue = values[values.length - 1] || ''
+      let value: number | string
+      
+      if (financialType === 'General') {
+        // Keep Project Info values as strings
+        value = rawValue
+      } else {
+        // Parse financial values as numbers
+        value = parseFloat(rawValue) || 0
+      }
       
       const row: FinancialRow = {
         Year: values[0] || '',
@@ -300,35 +304,72 @@ async function loadProjectData(filename: string, year: string, month: string): P
 // Calculate project metrics
 function getProjectMetrics(data: FinancialRow[], project: string) {
   const projectData = data.filter(d => d._project === project)
-  if (projectData.length === 0) return { 'Business Plan GP': 0, 'Projected GP': 0, 'WIP GP': 0, 'Cash Flow': 0 }
+  if (projectData.length === 0) {
+    return {
+      'Business Plan GP': 0,
+      'Projected GP': 0,
+      'WIP GP': 0,
+      'Cash Flow': 0,
+      'Start Date': 'N/A',
+      'Complete Date': 'N/A',
+      'Target Complete Date': 'N/A',
+      'Time Consumed (%)': 'N/A',
+      'Target Completed (%)': 'N/A'
+    }
+  }
 
   const gpFilter = (d: FinancialRow) => d.Item_Code === '3' && d.Data_Type?.toLowerCase().includes('gross profit')
+
+  // Helper to convert Value to number safely
+  const toNumber = (val: number | string): number => {
+    if (typeof val === 'number') return val
+    return parseFloat(val) || 0
+  }
 
   const bp = projectData.filter(d =>
     d.Sheet_Name === 'Financial Status' &&
     d.Financial_Type?.toLowerCase().includes('business plan') &&
     gpFilter(d)
-  ).reduce((sum, d) => sum + d.Value, 0)
+  ).reduce((sum, d) => sum + toNumber(d.Value), 0)
 
   const proj = projectData.filter(d =>
     d.Sheet_Name === 'Financial Status' &&
     d.Financial_Type?.toLowerCase().includes('projection') &&
     gpFilter(d)
-  ).reduce((sum, d) => sum + d.Value, 0)
+  ).reduce((sum, d) => sum + toNumber(d.Value), 0)
 
   const wip = projectData.filter(d =>
     d.Sheet_Name === 'Financial Status' &&
     d.Financial_Type?.toLowerCase().includes('audit report') &&
     gpFilter(d)
-  ).reduce((sum, d) => sum + d.Value, 0)
+  ).reduce((sum, d) => sum + toNumber(d.Value), 0)
 
   const cf = projectData.filter(d =>
     d.Sheet_Name === 'Financial Status' &&
     d.Financial_Type?.toLowerCase().includes('cash flow') &&
     gpFilter(d)
-  ).reduce((sum, d) => sum + d.Value, 0)
+  ).reduce((sum, d) => sum + toNumber(d.Value), 0)
 
-  return { 'Business Plan GP': bp, 'Projected GP': proj, 'WIP GP': wip, 'Cash Flow': cf }
+  // Extract Project Info (Financial_Type = "General")
+  const projectInfo = projectData.filter(d => d.Financial_Type === 'General')
+  
+  const getProjectInfoValue = (dataType: string) => {
+    const row = projectInfo.find(d => d.Data_Type === dataType)
+    const val = row ? String(row.Value) : ''
+    return (val && val !== 'Nil') ? val : 'N/A'
+  }
+
+  return {
+    'Business Plan GP': bp,
+    'Projected GP': proj,
+    'WIP GP': wip,
+    'Cash Flow': cf,
+    'Start Date': getProjectInfoValue('Start Date'),
+    'Complete Date': getProjectInfoValue('Complete Date'),
+    'Target Complete Date': getProjectInfoValue('Target Complete Date'),
+    'Time Consumed (%)': getProjectInfoValue('Time Consumed (%)'),
+    'Target Completed (%)': getProjectInfoValue('Target Completed (%)')
+  }
 }
 
 // Handle monthly category queries
@@ -397,7 +438,7 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
       d.Month === String(targetMonth) &&
       (d.Item_Code.startsWith(categoryPrefix + '.') || d.Item_Code === categoryPrefix)
     )
-    results[ft] = filtered.reduce((sum, d) => sum + d.Value, 0)
+    results[ft] = filtered.reduce((sum, d) => sum + toNumber(d.Value), 0)
   }
 
   const displayName = categoryName.charAt(0).toUpperCase() + categoryName.slice(1)
@@ -410,83 +451,570 @@ function handleMonthlyCategory(data: FinancialRow[], project: string, question: 
   return response
 }
 
-// Natural language query handler - Fuzzy Search Version
-function answerQuestion(data: FinancialRow[], project: string, question: string, month: string): string {
-  const expandedQuestion = expandAcronyms(question).toLowerCase()
+// ============================================
+// New Query Logic (Revised)
+// ============================================
 
-  const monthlyResult = handleMonthlyCategory(data, project, question, month)
-  if (monthlyResult) return monthlyResult
+interface ParsedQuery {
+  year?: string
+  month?: string
+  sheetName?: string
+  financialType?: string
+  dataType?: string
+  itemCode?: string
+}
 
-  const projectData = data.filter(d => d._project === project)
-  if (projectData.length === 0) return 'No data found for this project.'
+interface FuzzyResult {
+  text: string
+  candidates: Array<{
+    id: number
+    value: number | string
+    score: number
+    sheet: string
+    financialType: string
+    dataType: string
+    itemCode: string
+    month: string
+    year: string
+    matchedKeywords: string[]
+  }>
+}
 
-  // Use fuzzy search to find best matches
-  const candidates = findFuzzyMatches(projectData, expandedQuestion, 10)
-  
-  if (candidates.length === 0) {
-    return `No data found for "${question}".`
+// Parse date from question - maps "january 2025" or "2025 jan" or "jan" or "feb 25" to month/year
+function parseDate(question: string, defaultMonth: string): ParsedQuery {
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+  const monthAbbr = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+  const monthMap: Record<string, string> = {}
+  monthNames.forEach((name, i) => monthMap[name] = String(i + 1))
+  monthAbbr.forEach((abbr, i) => monthMap[abbr] = String(i + 1))
+
+  const result: ParsedQuery = {}
+  const lowerQ = question.toLowerCase()
+
+  // Find 4-digit year (2024, 2025, etc.)
+  const yearMatch = lowerQ.match(/\b(20[2-4]\d)\b/)
+  if (yearMatch) {
+    result.year = yearMatch[1]
   }
 
-  // Get top 3 for quick answer
-  const top3 = candidates.slice(0, 3)
-  const total = top3.reduce((sum, c) => sum + c.row.Value, 0)
-  const first = top3[0].row
+  // Handle "M/YY" or "MM/YY" format like "2/25" or "02/25" → Feb 2025
+  // This must be checked BEFORE 2-digit year
+  const mmyyMatch = lowerQ.match(/(\d{1,2})\/(\d{2})\b/)
+  if (mmyyMatch && !yearMatch) {
+    const monthNum = mmyyMatch[1]
+    const yearNum = mmyyMatch[2]
+    // Validate month is 1-12
+    const month = parseInt(monthNum)
+    if (month >= 1 && month <= 12) {
+      result.month = String(month)
+      result.year = '20' + yearNum
+    }
+  }
 
-  return `## Fuzzy Search Results ("${question}")
+  // Find 2-digit year (24, 25, etc.) - only if preceded by space and not part of month name
+  // "feb 25" should be Feb + 2025, not Feb + month 25
+  const twoDigitYearMatch = lowerQ.match(/\b(\d{2})\b(?!.*\d{4})/)
+  if (twoDigitYearMatch && !yearMatch && !result.year) {
+    const year = parseInt(twoDigitYearMatch[1])
+    if (year >= 20 && year <= 30) {
+      result.year = '20' + twoDigitYearMatch[1]
+    }
+  }
 
-**Top Answer:** $${total.toLocaleString()} ('000) — Score: ${first.score.toFixed(1)}
+  // Find month name or abbreviation - only if it doesn't conflict with year
+  for (let i = 0; i < monthNames.length; i++) {
+    if (lowerQ.includes(monthNames[i]) || lowerQ.includes(monthAbbr[i])) {
+      const monthNum = String(i + 1)
+      // Only set month if it doesn't look like a year (e.g., don't treat "2025" as month 20)
+      if (monthNum.length === 1 || (monthNum.length === 2 && monthNum !== '20' && monthNum !== '21' && monthNum !== '22' && monthNum !== '23')) {
+        result.month = monthNum
+      }
+      break
+    }
+  }
 
-**All Top 10 Candidates:**
-${candidates.map((c, i) => `${i+1}. **$${c.row.Value.toLocaleString()}** — Score: ${c.row.score.toFixed(1)}
-   Source: ${c.row.Sheet_Name}/${c.row.Financial_Type}/${c.row.Year}/${c.row.Month}/${c.row.Data_Type}/${c.row.Item_Code}`).join('\n')}
+  // If no month found, use default month
+  if (!result.month) {
+    result.month = defaultMonth
+  }
 
-*Click a number to select or ask a more specific question.*`
+  return result
 }
 
-// Fuzzy match scoring system
-interface Candidate {
-  row: FinancialRow & { score: number }
-  matchedFields: string[]
-}
+// Find closest match for a value against a list of candidates using Levenshtein distance
+function findClosestMatch(input: string, candidates: string[]): string | null {
+  if (!input || candidates.length === 0) return null
 
-function findFuzzyMatches(data: FinancialRow[], question: string, limit: number): Candidate[] {
-  const keywords = question.toLowerCase().split(/\s+/).filter(w => w.length > 1)
-  
-  const scored = data.map(row => {
-    let score = 0
-    const matchedFields: string[] = []
-    const rowText = `${row.Sheet_Name} ${row.Financial_Type} ${row.Data_Type} ${row.Item_Code} ${row.Month}`.toLowerCase()
+  const normalizedInput = input.toLowerCase().trim()
+  let bestMatch: string | null = null
+  let bestDistance = Infinity
+
+  for (const candidate of candidates) {
+    const normalizedCand = candidate.toLowerCase().trim()
     
-    for (const kw of keywords) {
-      // Exact field matches (high weight)
-      if (row.Sheet_Name.toLowerCase().includes(kw)) { score += 30; matchedFields.push('Sheet') }
-      if (row.Financial_Type.toLowerCase().includes(kw)) { score += 25; matchedFields.push('FinType') }
-      if (row.Data_Type.toLowerCase().includes(kw)) { score += 25; matchedFields.push('DataType') }
-      if (row.Item_Code.toLowerCase().includes(kw)) { score += 20; matchedFields.push('Item') }
-      
-      // Partial/contains matches (lower weight)
-      if (rowText.includes(kw)) { score += 5 }
-      
-      // Acronym expansions
-      if (kw === 'gp' && (row.Data_Type.toLowerCase().includes('gross') || row.Item_Code === '3')) { score += 40; matchedFields.push('GP') }
-      if (kw === 'np' && (row.Data_Type.toLowerCase().includes('net') || row.Item_Code === '7')) { score += 40; matchedFields.push('NP') }
-      if (kw === 'wip' && row.Financial_Type.toLowerCase().includes('audit')) { score += 35; matchedFields.push('WIP') }
-      if ((kw === 'budget' || kw === 'bp') && row.Financial_Type.toLowerCase().includes('business')) { score += 35; matchedFields.push('BP') }
-      if ((kw === 'proj' || kw === 'projection') && row.Financial_Type.toLowerCase().includes('projection')) { score += 35; matchedFields.push('Proj') }
-      if (kw === 'cf' && row.Financial_Type.toLowerCase().includes('cash')) { score += 35; matchedFields.push('CF') }
+    // Exact match - return immediately
+    if (normalizedInput === normalizedCand) return candidate
+    
+    // Check for EXACT SUBSTRING match - input must appear as a WHOLE WORD in candidate
+    // Split candidate into words and check if input matches any word
+    const candWords = normalizedCand.split(/\s+/)
+    let isWordMatch = false
+    for (let i = 0; i < candWords.length; i++) {
+      const word = candWords[i]
+      // Input must match a candidate word EXACTLY, or be a substantial part (50%+) of that word
+      if (word === normalizedInput) {
+        isWordMatch = true
+        break
+      }
+      // Check if word contains input OR input contains word (and input is substantial part)
+      if (word.includes(normalizedInput)) {
+        // Input is substring of word - only accept if input is at least 50% of the word
+        if (normalizedInput.length >= word.length * 0.5) {
+          isWordMatch = true
+          break
+        }
+      }
     }
     
-    // Boost for recent months
-    const monthMatch = keywords.find(kw => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(kw))
-    if (monthMatch && row.Month.toLowerCase().includes(monthMatch)) { score += 15; matchedFields.push('Month') }
+    if (isWordMatch) {
+      // It's a word-level match
+      const distance = Math.abs(normalizedCand.length - normalizedInput.length)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestMatch = candidate
+      }
+      continue
+    }
+
+    // For fuzzy matching (not substring), check character similarity
+    const inputChars: Record<string, boolean> = {}
+    for (let i = 0; i < normalizedInput.length; i++) {
+      const c = normalizedInput[i]
+      if (c !== ' ') inputChars[c] = true
+    }
+    const candChars: Record<string, boolean> = {}
+    for (let i = 0; i < normalizedCand.length; i++) {
+      const c = normalizedCand[i]
+      if (c !== ' ') candChars[c] = true
+    }
+    let sharedChars = 0
+    for (const c in inputChars) {
+      if (candChars[c]) sharedChars++
+    }
+    const totalChars = Object.keys(inputChars).length + Object.keys(candChars).length - sharedChars
+    const similarity = totalChars > 0 ? sharedChars / totalChars : 0
     
-    return { row: { ...row, score }, matchedFields }
+    // Only consider fuzzy match if at least 60% character similarity
+    if (similarity < 0.6) continue
+
+    // Levenshtein distance for fuzzy matching
+    const distance = levenshteinDistance(normalizedInput, normalizedCand)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestMatch = candidate
+    }
+  }
+
+  // Only return if reasonably close (word match OR very close fuzzy match)
+  if (bestMatch && bestDistance <= normalizedInput.length / 2) {
+    return bestMatch
+  }
+  return null
+}
+
+// Levenshtein distance calculation
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = []
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i]
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        )
+      }
+    }
+  }
+  return matrix[b.length][a.length]
+}
+
+// Format currency without decimals - e.g., $20.01 → $20
+function formatCurrency(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`
+}
+
+// Get all unique values for a column
+function getUniqueValues(data: FinancialRow[], project: string, field: keyof FinancialRow): string[] {
+  const projectData = data.filter(d => d._project === project)
+  const values = new Set<string>()
+  projectData.forEach(row => {
+    const val = row[field]
+    if (val) values.add(String(val))
   })
+  return Array.from(values)
+}
+
+// Main query handler with new logic
+function answerQuestion(data: FinancialRow[], project: string, question: string, defaultMonth: string): FuzzyResult {
+  const expandedQuestion = expandAcronyms(question).toLowerCase()
+  // Get significant words from the question (after acronym expansion)
+  // IMPORTANT: Keep ALL words including short ones like "np" which may be acronyms
+  const questionWords = expandedQuestion.split(/\s+/).filter(w => w.length > 0)
+  const projectData = data.filter(d => d._project === project)
+
+  if (projectData.length === 0) {
+    return { text: 'No data found for this project.', candidates: [] }
+  }
+
+  // Step 1: Parse date → month, year
+  const parsedDate = parseDate(expandedQuestion, defaultMonth)
+
+  // Step 2: Check Sheet_Name
+  // IF user didn't specify any date (only using defaults): default to "Financial Status"
+  // IF user specified a date: check if user mentioned a specific sheet
+  let targetSheet: string | undefined
+  const sheets = getUniqueValues(data, project, 'Sheet_Name')
   
-  // Sort by score descending
-  scored.sort((a, b) => b.row.score - a.row.score)
+  // Detect if user actually specified a date (not just using defaults)
+  const userSpecifiedYear = parsedDate.year && parsedDate.year !== String(new Date().getFullYear())
+  const userSpecifiedMonth = parsedDate.month && parsedDate.month !== defaultMonth
+  const hasUserDate = userSpecifiedYear || userSpecifiedMonth
   
-  return scored.slice(0, limit)
+  if (!hasUserDate) {
+    // No date specified by user → Default to Financial Status, skip sheet detection
+    targetSheet = 'Financial Status'
+  } else {
+    // Date specified by user → Check if user explicitly mentioned a sheet
+    // First try: check if user explicitly mentioned a sheet
+    for (const sheet of sheets) {
+      const sheetLower = sheet.toLowerCase()
+      // Check if sheet name appears in question (with or without "sheet")
+      if (expandedQuestion.includes(sheetLower.replace(/\s+/g, '')) ||
+          expandedQuestion.includes(sheetLower.split(' ')[0])) {
+        targetSheet = sheet
+        break
+      }
+    }
+    
+    // Second: check for common sheet name keywords even without "sheet" prefix
+    if (!targetSheet) {
+      const sheetKeywords: Record<string, string> = {
+        'cashflow': 'Cash Flow',
+        'cash flow': 'Cash Flow',
+        'projection': 'Projection',
+        'committed': 'Committed Cost',
+        'accrual': 'Accrual',
+        'financial status': 'Financial Status',
+        'financial': 'Financial Status'
+      }
+      for (const [keyword, sheetName] of Object.entries(sheetKeywords)) {
+        // Check if keyword is in expanded question (as standalone word/phrase)
+        const keywordRegex = new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'i')
+        if (keywordRegex.test(expandedQuestion)) {
+          // Verify this sheet actually exists in the data (handle whitespace/blank issues)
+          const found = sheets.find(s => s && s.trim() && s.trim().toLowerCase() === sheetName.toLowerCase())
+          if (found) {
+            targetSheet = found
+            break
+          }
+        }
+      }
+    }
+  }
+
+  // Step 3: Get unique Financial_Type and Data_Type from data
+  const financialTypes = getUniqueValues(data, project, 'Financial_Type')
+  const dataTypes = getUniqueValues(data, project, 'Data_Type')
+  // sheets is already defined in Step 2 above
+
+  // Step 4: Extract Financial_Type from question (find closest match)
+  // IMPORTANT: "projected" should map to Financial_Type like "Projection as at"
+  // We should NOT skip Financial_Type just because it contains a Sheet_Name
+  let targetFinType: string | undefined
+  for (const ft of financialTypes) {
+    const ftLower = ft.toLowerCase()
+    // Check if any question word matches any Financial_Type word
+    // IMPORTANT: Keep short words like "np" which may be acronyms
+    const ftWords = ftLower.split(/\s+/).filter(w => w.length > 0)
+    for (const qWord of questionWords) {
+      for (const ftWord of ftWords) {
+        // Exact word match OR word contains substring with 50%+ threshold
+        if (qWord === ftWord) {
+          targetFinType = ft
+          break
+        }
+        if (ftWord.includes(qWord) && qWord.length >= ftWord.length * 0.5) {
+          targetFinType = ft
+          break
+        }
+      }
+      if (targetFinType) break
+    }
+    if (targetFinType) break
+  }
+  // If no match found, use fuzzy matching
+  if (!targetFinType) {
+    for (const word of questionWords) {
+      const match = findClosestMatch(word, financialTypes)
+      if (match) {
+        targetFinType = match
+        break
+      }
+    }
+  }
+
+  // Step 5: Extract Data_Type from question (find closest match)
+  // IMPORTANT: "gp" / "np" should map to Data_Type like "Gross Profit" / "Net Profit"
+  // We should prefer Data_Types that match MORE question words
+  let targetDataType: string | undefined
+  let bestDataTypeMatchCount = 0
+  
+  for (const dt of dataTypes) {
+    const dtLower = dt.toLowerCase()
+    // IMPORTANT: Keep short words like "gp", "np" which may be acronyms
+    const dtWords = dtLower.split(/\s+/).filter(w => w.length > 0)
+    
+    // Count how many question words match this Data_Type (no early break!)
+    let matchCount = 0
+    const matchedWords: string[] = []
+    for (const qWord of questionWords) {
+      for (const dtWord of dtWords) {
+        // Check if question word matches Data_Type word
+        if (qWord === dtWord) {
+          matchCount++
+          matchedWords.push(qWord)
+          break // This qWord matched, move to next qWord
+        }
+      }
+    }
+    
+    // Also check partial matches 
+    // Match if the LONGER word contains the SHORTER word, and shorter is at least 50% of longer
+    for (const qWord of questionWords) {
+      if (matchedWords.includes(qWord)) continue // Already counted exact match
+      for (const dtWord of dtWords) {
+        const qLen = qWord.length
+        const dLen = dtWord.length
+        
+        // Longer word contains shorter word
+        const longer = qLen >= dLen ? qWord : dtWord
+        const shorter = qLen >= dLen ? dtWord : qWord
+        
+        if (longer.includes(shorter) && shorter.length >= longer.length * 0.5) {
+          matchCount++
+          matchedWords.push(qWord)
+          break // This qWord matched, move to next qWord
+        }
+      }
+    }
+    
+    // Prefer Data_Type that matches MORE question words
+    if (matchCount > bestDataTypeMatchCount) {
+      bestDataTypeMatchCount = matchCount
+      targetDataType = dt
+    }
+  }
+  
+  // If no match found, use fuzzy matching with all significant words
+  if (!targetDataType) {
+    for (const word of questionWords) {
+      const match = findClosestMatch(word, dataTypes)
+      if (match) {
+        targetDataType = match
+        break
+      }
+    }
+  }
+
+  // Track which sheet was actually applied (for display)
+  let appliedSheet = targetSheet
+
+  // Build filter conditions
+  let filtered = projectData
+
+  // Apply Sheet_Name filter
+  if (targetSheet) {
+    filtered = filtered.filter(d => d.Sheet_Name === targetSheet)
+    appliedSheet = targetSheet
+  }
+
+  // Apply month filter (if specified)
+  if (parsedDate.month) {
+    filtered = filtered.filter(d => d.Month === parsedDate.month)
+  }
+
+  // Apply year filter (if specified)
+  if (parsedDate.year) {
+    filtered = filtered.filter(d => d.Year === parsedDate.year)
+  }
+
+  // Apply Financial_Type filter (if found)
+  if (targetFinType) {
+    filtered = filtered.filter(d => d.Financial_Type === targetFinType)
+  }
+
+  // Apply Data_Type filter (if found)
+  if (targetDataType) {
+    filtered = filtered.filter(d => d.Data_Type === targetDataType)
+  }
+
+  // If no exact matches, relax filters progressively
+  if (filtered.length === 0) {
+    // Try without Financial_Type
+    filtered = projectData
+    if (targetSheet) filtered = filtered.filter(d => d.Sheet_Name === targetSheet)
+    if (parsedDate.month) filtered = filtered.filter(d => d.Month === parsedDate.month)
+    if (parsedDate.year) filtered = filtered.filter(d => d.Year === parsedDate.year)
+    if (targetDataType) filtered = filtered.filter(d => d.Data_Type === targetDataType)
+    appliedSheet = targetSheet || 'Financial Status'
+  }
+
+  if (filtered.length === 0) {
+    // Try without Data_Type
+    filtered = projectData
+    if (targetSheet) filtered = filtered.filter(d => d.Sheet_Name === targetSheet)
+    if (parsedDate.month) filtered = filtered.filter(d => d.Month === parsedDate.month)
+    if (parsedDate.year) filtered = filtered.filter(d => d.Year === parsedDate.year)
+    appliedSheet = targetSheet || 'Financial Status'
+  }
+
+  if (filtered.length === 0) {
+    return { text: `No data found matching your query.\n\nFilters attempted:\n${appliedSheet ? `- Sheet: ${appliedSheet}\n` : ''}${parsedDate.month ? `- Month: ${parsedDate.month}\n` : ''}${parsedDate.year ? `- Year: ${parsedDate.year}\n` : ''}${targetFinType ? `- Financial Type: ${targetFinType}\n` : ''}${targetDataType ? `- Data Type: ${targetDataType}` : ''}`, candidates: [] }
+  }
+
+  // Helper to convert Value to number safely
+  const toNumber = (val: number | string): number => {
+    if (typeof val === 'number') return val
+    return parseFloat(val) || 0
+  }
+
+  // Format results
+  const total = filtered.reduce((sum, d) => sum + toNumber(d.Value), 0)
+
+  // Get unique Item_Codes for display
+  const itemGroups = new Map<string, FinancialRow[]>()
+  filtered.forEach(d => {
+    const key = d.Item_Code || 'Unknown'
+    if (!itemGroups.has(key)) itemGroups.set(key, [])
+    itemGroups.get(key)!.push(d)
+  })
+
+  let response = `## Query Results\n\n`
+  response += `**Filters:**\n`
+  // Show which sheet was used
+  if (appliedSheet) response += `• Sheet: ${appliedSheet}\n`
+  // Show Financial Type filter
+  if (targetFinType) response += `• Financial Type: ${targetFinType}\n`
+  // Show month - only show actual month if user specified it
+  response += `• Month: ${hasUserDate && parsedDate.month ? parsedDate.month : 'All'}\n`
+  // Show year - only show actual year if user specified it
+  response += `• Year: ${hasUserDate && parsedDate.year ? parsedDate.year : 'All'}\n`
+  response += `• Data Type: ${targetDataType || 'All'}\n`
+  response += `• Item Code: all\n\n`
+
+  response += `**Total: ${formatCurrency(total)}** ('000)\n\n`
+
+  response += `**By Item Code:**\n`
+  itemGroups.forEach((rows, itemCode) => {
+    const itemTotal = rows.reduce((sum, d) => sum + toNumber(d.Value), 0)
+    response += `• Item ${itemCode}: ${formatCurrency(itemTotal)}\n`
+  })
+
+  // Create candidates for clickable selection
+  // ALWAYS score ALL project data records and show top 10 best matches
+  // Include keyword matching across ALL fields for comprehensive scoring
+  const allCandidates = projectData.map((d) => {
+    let matchScore = 0
+    const matchedKeywords: string[] = []
+    
+    // Build combined text from all searchable fields
+    const combinedText = `${d.Sheet_Name} ${d.Financial_Type} ${d.Data_Type} ${d.Item_Code} ${d.Month} ${d.Year}`.toLowerCase()
+    
+    // Check each question word against ALL fields
+    for (const qWord of questionWords) {
+      // Financial_Type match
+      if (d.Financial_Type.toLowerCase().includes(qWord)) {
+        matchScore += 5
+        matchedKeywords.push(qWord)
+      }
+      
+      // Data_Type match (important!)
+      if (d.Data_Type.toLowerCase().includes(qWord)) {
+        matchScore += 8
+        matchedKeywords.push(qWord)
+      }
+      
+      // Item_Code match
+      if (d.Item_Code.toLowerCase().includes(qWord)) {
+        matchScore += 3
+        matchedKeywords.push(qWord)
+      }
+      
+      // Sheet_Name match
+      if (d.Sheet_Name.toLowerCase().includes(qWord)) {
+        matchScore += 2
+        matchedKeywords.push(qWord)
+      }
+    }
+    
+    // Explicit Financial_Type match (high priority)
+    if (targetFinType && d.Financial_Type === targetFinType) matchScore += 40
+    else if (targetFinType && d.Financial_Type.toLowerCase().includes(targetFinType.toLowerCase())) {
+      matchScore += 30
+      matchedKeywords.push(targetFinType)
+    }
+    
+    // Explicit Data_Type match (high priority)
+    if (targetDataType && d.Data_Type === targetDataType) matchScore += 35
+    else if (targetDataType && d.Data_Type.toLowerCase().includes(targetDataType.toLowerCase())) {
+      matchScore += 25
+      matchedKeywords.push(targetDataType)
+    }
+    
+    // Month match
+    if (parsedDate.month && d.Month === parsedDate.month) matchScore += 20
+    
+    // Year match
+    if (parsedDate.year && d.Year === parsedDate.year) matchScore += 15
+    
+    // Bonus for common item codes
+    if (d.Item_Code === '3' || d.Item_Code === '1' || d.Item_Code === '2') matchScore += 5
+    
+    // Bonus for Financial Status (default sheet)
+    if (d.Sheet_Name === 'Financial Status') matchScore += 2
+    
+    return {
+      id: 0, // Will be reassigned
+      value: d.Value,
+      score: matchScore,
+      sheet: d.Sheet_Name,
+      financialType: d.Financial_Type,
+      dataType: d.Data_Type,
+      itemCode: d.Item_Code,
+      month: d.Month,
+      year: d.Year,
+      matchedKeywords: Array.from(new Set(matchedKeywords)) // Remove duplicates
+    }
+  }).sort((a, b) => b.score - a.score).slice(0, 10)
+
+  // Reassign IDs after sorting
+  const candidates = allCandidates.map((c, i) => ({ ...c, id: i + 1 }))
+
+  if (candidates.length > 0) {
+    response += `\n**Available Records (click to select):**\n`
+    candidates.forEach((c) => {
+      const matches = c.matchedKeywords.length > 0 ? ` [Matched: ${c.matchedKeywords.join(', ')}]` : ''
+      response += `[${c.id}] ${c.month}/${c.year}/${c.sheet}/${c.financialType}/${c.dataType}/${c.itemCode}: ${formatCurrency(toNumber(c.value))} [Score: ${c.score}]${matches}\n`
+    })
+  }
+
+  return { text: response, candidates }
 }
 
 export async function POST(request: NextRequest) {
@@ -541,8 +1069,8 @@ export async function POST(request: NextRequest) {
 
       case 'query': {
         const data = await loadProjectData(projectFile, year, month)
-        const response = answerQuestion(data, project, question, month)
-        return NextResponse.json({ response })
+        const result = answerQuestion(data, project, question, month)
+        return NextResponse.json({ response: result.text, candidates: result.candidates })
       }
 
       case 'metrics': {
