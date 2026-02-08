@@ -771,54 +771,77 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
 
   // Step 5: Extract Data_Type from question (find closest match)
   // IMPORTANT: "gp" / "np" should map to Data_Type like "Gross Profit" / "Net Profit"
-  // We should prefer Data_Types that match MORE question words
-  let targetDataType: string | undefined
+  
+  // Special mapping for common acronyms (must come first!)
+  const acronymMap: Record<string, string[]> = {
+    'np': ['net profit', 'acc. net profit'],
+    'gp': ['gross profit', 'acc. gross profit'],
+    'wip': ['work in progress'],
+    'cf': ['cash flow']
+  }
+  
+  // Check if question contains any known acronyms
+  for (const [acronym, expansions] of Object.entries(acronymMap)) {
+    if (questionWords.includes(acronym)) {
+      // Try to find a matching Data_Type in the data
+      for (const expansion of expansions) {
+        const match = dataTypes.find(dt => dt.toLowerCase().includes(expansion))
+        if (match) {
+          targetDataType = match
+          break
+        }
+      }
+      if (targetDataType) break
+    }
+  }
+  
+  // If no acronym match found, continue with regular matching
   let bestDataTypeMatchCount = 0
   
-  for (const dt of dataTypes) {
-    const dtLower = dt.toLowerCase()
-    // IMPORTANT: Keep short words like "gp", "np" which may be acronyms
-    const dtWords = dtLower.split(/\s+/).filter(w => w.length > 0)
-    
-    // Count how many question words match this Data_Type (no early break!)
-    let matchCount = 0
-    const matchedWords: string[] = []
-    for (const qWord of questionWords) {
-      for (const dtWord of dtWords) {
-        // Check if question word matches Data_Type word
-        if (qWord === dtWord) {
-          matchCount++
-          matchedWords.push(qWord)
-          break // This qWord matched, move to next qWord
+  if (!targetDataType) {
+    for (const dt of dataTypes) {
+      const dtLower = dt.toLowerCase()
+      const dtWords = dtLower.split(/\s+/).filter(w => w.length > 0)
+      
+      // Count how many question words match this Data_Type
+      let matchCount = 0
+      const matchedWords: string[] = []
+      for (const qWord of questionWords) {
+        for (const dtWord of dtWords) {
+          if (qWord === dtWord) {
+            matchCount++
+            matchedWords.push(qWord)
+            break
+          }
         }
       }
-    }
-    
-    // Also check partial matches 
-    // Match if the LONGER word contains the SHORTER word, and shorter is at least 50% of longer
-    for (const qWord of questionWords) {
-      if (matchedWords.includes(qWord)) continue // Already counted exact match
-      for (const dtWord of dtWords) {
-        const qLen = qWord.length
-        const dLen = dtWord.length
+      
+      // Partial matches for longer words (4+ chars)
+      for (const qWord of questionWords) {
+        if (matchedWords.includes(qWord)) continue
+        if (qWord.length <= 3) continue
         
-        // Longer word contains shorter word
-        const longer = qLen >= dLen ? qWord : dtWord
-        const shorter = qLen >= dLen ? dtWord : qWord
-        
-        if (longer.includes(shorter) && shorter.length >= longer.length * 0.5) {
-          matchCount++
-          matchedWords.push(qWord)
-          break // This qWord matched, move to next qWord
+        for (const dtWord of dtWords) {
+          const qLen = qWord.length
+          const dLen = dtWord.length
+          
+          const longer = qLen >= dLen ? qWord : dtWord
+          const shorter = qLen >= dLen ? dtWord : qWord
+          
+          if (longer.includes(shorter) && shorter.length >= longer.length * 0.5) {
+            matchCount++
+            matchedWords.push(qWord)
+            break
+          }
         }
       }
+      
+      if (matchCount > bestDataTypeMatchCount) {
+        bestDataTypeMatchCount = matchCount
+        targetDataType = dt
+      }
     }
-    
-    // Prefer Data_Type that matches MORE question words
-    if (matchCount > bestDataTypeMatchCount) {
-      bestDataTypeMatchCount = matchCount
-      targetDataType = dt
-    }
+  }
   }
   
   // If no match found, use fuzzy matching with all significant words
