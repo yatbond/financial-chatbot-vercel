@@ -87,7 +87,7 @@ async function findRootFolder(drive: any) {
 async function listYearFolders(drive: any, rootId: string) {
   const allFiles: any[] = []
   let pageToken: string | null = null
-  
+
   do {
     const res = await drive.files.list({
       q: `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
@@ -98,14 +98,14 @@ async function listYearFolders(drive: any, rootId: string) {
     if (res.data.files) allFiles.push(...res.data.files)
     pageToken = res.data.nextPageToken || null
   } while (pageToken)
-  
+
   return allFiles
 }
 
 async function listMonthFolders(drive: any, yearId: string) {
   const allFiles: any[] = []
   let pageToken: string | null = null
-  
+
   do {
     const res = await drive.files.list({
       q: `'${yearId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
@@ -116,14 +116,14 @@ async function listMonthFolders(drive: any, yearId: string) {
     if (res.data.files) allFiles.push(...res.data.files)
     pageToken = res.data.nextPageToken || null
   } while (pageToken)
-  
+
   return allFiles
 }
 
 async function listCsvFiles(drive: any, monthId: string) {
   const allFiles: any[] = []
   let pageToken: string | null = null
-  
+
   do {
     const res = await drive.files.list({
       q: `'${monthId}' in parents and name contains '_flat.csv' and trashed=false`,
@@ -134,7 +134,7 @@ async function listCsvFiles(drive: any, monthId: string) {
     if (res.data.files) allFiles.push(...res.data.files)
     pageToken = res.data.nextPageToken || null
   } while (pageToken)
-  
+
   return allFiles
 }
 
@@ -229,7 +229,7 @@ async function loadProjectData(filename: string, year: string, month: string): P
     // Parse CSV - columns are at fixed positions:
     // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Type, 4: Item_Code, 5: Data_Type, 6: Value
     const lines = (res.data as string).split('\n').filter(line => line.trim())
-    
+
     const { name } = extractProjectInfo(filename)
     const code = filename.match(/^(\d+)/)?.[1] || ''
     const projectLabel = `${code} - ${name}`
@@ -252,28 +252,28 @@ async function loadProjectData(filename: string, year: string, month: string): P
         }
       }
       values.push(current.trim().replace(/"/g, ''))
-      
+
       // Skip header row if present
       const firstValue = values[0]?.toLowerCase()
       if (i === 0 && (firstValue === 'year' || firstValue === 'sheet_name')) continue
-      
+
       // Parse each column - columns are at fixed positions:
       // 0: Year, 1: Month, 2: Sheet_Name, 3: Financial_Type, 4: Item_Code, 5: Data_Type, 6: Value
-      
+
       // Extract Data_Type directly from column 5 (not pattern matching)
       const dataType = values[5] || ''
-      
+
       // Extract Item_Code from column 4
       const itemCode = values[4] || ''
-      
+
       // Financial_Type from column 3
       const financialType = values[3] || ''
-      
+
       // For Project Info (Financial_Type = "General"), keep values as strings (dates, percentages)
       // For financial data, parse as numbers
       const rawValue = values[values.length - 1] || ''
       let value: number | string
-      
+
       if (financialType === 'General') {
         // Keep Project Info values as strings
         value = rawValue
@@ -281,7 +281,7 @@ async function loadProjectData(filename: string, year: string, month: string): P
         // Parse financial values as numbers
         value = parseFloat(rawValue) || 0
       }
-      
+
       const row: FinancialRow = {
         Year: values[0] || '',
         Month: values[1] || '',
@@ -352,7 +352,7 @@ function getProjectMetrics(data: FinancialRow[], project: string) {
 
   // Extract Project Info (Financial_Type = "General")
   const projectInfo = projectData.filter(d => d.Financial_Type === 'General')
-  
+
   const getProjectInfoValue = (dataType: string) => {
     const row = projectInfo.find(d => d.Data_Type === dataType)
     const val = row ? String(row.Value) : ''
@@ -551,10 +551,10 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
 
   for (const candidate of candidates) {
     const normalizedCand = candidate.toLowerCase().trim()
-    
+
     // Exact match - return immediately
     if (normalizedInput === normalizedCand) return candidate
-    
+
     // Check for EXACT SUBSTRING match - input must appear as a WHOLE WORD in candidate
     // Split candidate into words and check if input matches any word
     const candWords = normalizedCand.split(/\s+/)
@@ -575,7 +575,7 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
         }
       }
     }
-    
+
     if (isWordMatch) {
       // It's a word-level match
       const distance = Math.abs(normalizedCand.length - normalizedInput.length)
@@ -603,7 +603,7 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
     }
     const totalChars = Object.keys(inputChars).length + Object.keys(candChars).length - sharedChars
     const similarity = totalChars > 0 ? sharedChars / totalChars : 0
-    
+
     // Only consider fuzzy match if at least 60% character similarity
     if (similarity < 0.6) continue
 
@@ -680,12 +680,12 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
   // IF user specified a date: check if user mentioned a specific sheet
   let targetSheet: string | undefined
   const sheets = getUniqueValues(data, project, 'Sheet_Name')
-  
+
   // Detect if user actually specified a date (not just using defaults)
   const userSpecifiedYear = parsedDate.year && parsedDate.year !== String(new Date().getFullYear())
   const userSpecifiedMonth = parsedDate.month && parsedDate.month !== defaultMonth
   const hasUserDate = userSpecifiedYear || userSpecifiedMonth
-  
+
   if (!hasUserDate) {
     // No date specified by user → Default to Financial Status, skip sheet detection
     targetSheet = 'Financial Status'
@@ -701,7 +701,7 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
         break
       }
     }
-    
+
     // Second: check for common sheet name keywords even without "sheet" prefix
     if (!targetSheet) {
       const sheetKeywords: Record<string, string> = {
@@ -731,8 +731,8 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
   // Step 3: Get unique Financial_Type and Data_Type from data
   const financialTypes = getUniqueValues(data, project, 'Financial_Type')
   const dataTypes = getUniqueValues(data, project, 'Data_Type')
-  // sheets is already defined in Step 2 above
-
+  console.log('Available Data_Types:', dataTypes)
+  
   // Step 4: Extract Financial_Type from question (find closest match)
   // IMPORTANT: "projected" should map to Financial_Type like "Projection as at"
   // We should NOT skip Financial_Type just because it contains a Sheet_Name
@@ -771,7 +771,7 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
 
   // Step 5: Extract Data_Type from question (find closest match)
   // IMPORTANT: "gp" / "np" should map to Data_Type like "Gross Profit" / "Net Profit"
-  
+
   // Special mapping for common acronyms (must come first!)
   const acronymMap: Record<string, string[]> = {
     'np': ['net profit', 'acc. net profit'],
@@ -779,30 +779,33 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
     'wip': ['work in progress'],
     'cf': ['cash flow']
   }
-  
+
   // Check if question contains any known acronyms
   for (const [acronym, expansions] of Object.entries(acronymMap)) {
     if (questionWords.includes(acronym)) {
+      console.log(`Found acronym "${acronym}" in question, looking for:`, expansions)
       // Try to find a matching Data_Type in the data
       for (const expansion of expansions) {
         const match = dataTypes.find(dt => dt.toLowerCase().includes(expansion))
+        console.log(`Checking "${expansion}" against dataTypes:`, match)
         if (match) {
           targetDataType = match
+          console.log(`Set targetDataType to: ${targetDataType}`)
           break
         }
       }
       if (targetDataType) break
     }
   }
-  
+
   // If no acronym match found, continue with regular matching
   let bestDataTypeMatchCount = 0
-  
+
   if (!targetDataType) {
     for (const dt of dataTypes) {
       const dtLower = dt.toLowerCase()
       const dtWords = dtLower.split(/\s+/).filter(w => w.length > 0)
-      
+
       // Count how many question words match this Data_Type
       let matchCount = 0
       const matchedWords: string[] = []
@@ -815,19 +818,19 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
           }
         }
       }
-      
+
       // Partial matches for longer words (4+ chars)
       for (const qWord of questionWords) {
         if (matchedWords.includes(qWord)) continue
         if (qWord.length <= 3) continue
-        
+
         for (const dtWord of dtWords) {
           const qLen = qWord.length
           const dLen = dtWord.length
-          
+
           const longer = qLen >= dLen ? qWord : dtWord
           const shorter = qLen >= dLen ? dtWord : qWord
-          
+
           if (longer.includes(shorter) && shorter.length >= longer.length * 0.5) {
             matchCount++
             matchedWords.push(qWord)
@@ -835,14 +838,14 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
           }
         }
       }
-      
+
       if (matchCount > bestDataTypeMatchCount) {
         bestDataTypeMatchCount = matchCount
         targetDataType = dt
       }
     }
   }
-  
+
   // If no match found, use fuzzy matching with all significant words
   if (!targetDataType) {
     for (const word of questionWords) {
@@ -954,10 +957,10 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
   const allCandidates = projectData.map((d) => {
     let matchScore = 0
     const matchedKeywords: string[] = []
-    
+
     // Build combined text from all searchable fields
     const combinedText = `${d.Sheet_Name} ${d.Financial_Type} ${d.Data_Type} ${d.Item_Code} ${d.Month} ${d.Year}`.toLowerCase()
-    
+
     // Check each question word against ALL fields
     for (const qWord of questionWords) {
       // Financial_Type match
@@ -965,52 +968,52 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
         matchScore += 5
         matchedKeywords.push(qWord)
       }
-      
+
       // Data_Type match (important!)
       if (d.Data_Type.toLowerCase().includes(qWord)) {
         matchScore += 8
         matchedKeywords.push(qWord)
       }
-      
+
       // Item_Code match
       if (d.Item_Code.toLowerCase().includes(qWord)) {
         matchScore += 3
         matchedKeywords.push(qWord)
       }
-      
+
       // Sheet_Name match
       if (d.Sheet_Name.toLowerCase().includes(qWord)) {
         matchScore += 2
         matchedKeywords.push(qWord)
       }
     }
-    
+
     // Explicit Financial_Type match (high priority)
     if (targetFinType && d.Financial_Type === targetFinType) matchScore += 40
     else if (targetFinType && d.Financial_Type.toLowerCase().includes(targetFinType.toLowerCase())) {
       matchScore += 30
       matchedKeywords.push(targetFinType)
     }
-    
+
     // Explicit Data_Type match (high priority)
     if (targetDataType && d.Data_Type === targetDataType) matchScore += 35
     else if (targetDataType && d.Data_Type.toLowerCase().includes(targetDataType.toLowerCase())) {
       matchScore += 25
       matchedKeywords.push(targetDataType)
     }
-    
+
     // Month match
     if (parsedDate.month && d.Month === parsedDate.month) matchScore += 20
-    
+
     // Year match
     if (parsedDate.year && d.Year === parsedDate.year) matchScore += 15
-    
+
     // Bonus for common item codes
     if (d.Item_Code === '3' || d.Item_Code === '1' || d.Item_Code === '2') matchScore += 5
-    
+
     // Bonus for Financial Status (default sheet)
     if (d.Sheet_Name === 'Financial Status') matchScore += 2
-    
+
     return {
       id: 0, // Will be reassigned
       value: d.Value,
@@ -1048,22 +1051,22 @@ export async function POST(request: NextRequest) {
       case 'getStructure': {
         const result = await getFolderStructure()
         if (result.error) {
-          return NextResponse.json({ 
-            folders: result.folders, 
+          return NextResponse.json({
+            folders: result.folders,
             projects: result.projects,
-            error: result.error 
+            error: result.error
           })
         }
-        return NextResponse.json({ 
-          folders: result.folders, 
-          projects: result.projects 
+        return NextResponse.json({
+          folders: result.folders,
+          projects: result.projects
         })
       }
 
       case 'loadProject': {
         const data = await loadProjectData(projectFile, year, month)
         const metrics = getProjectMetrics(data, project)
-        
+
         // Debug info
         const debug = {
           source: `Google Drive: Ai Chatbot Knowledge Base/${year}/${month}/${projectFile}`,
@@ -1080,12 +1083,12 @@ export async function POST(request: NextRequest) {
           uniqueFinancialTypes: Array.from(new Set(data.map(d => d.Financial_Type))),
           uniqueItemCodes: Array.from(new Set(data.map(d => d.Item_Code))),
           uniqueDataTypes: Array.from(new Set(data.map(d => d.Data_Type))),
-          gpRowsCount: data.filter(d => 
-            d.Item_Code === '3' && 
+          gpRowsCount: data.filter(d =>
+            d.Item_Code === '3' &&
             d.Data_Type?.toLowerCase().includes('gross profit')
           ).length
         }
-        
+
         return NextResponse.json({ data, metrics, debug })
       }
 
