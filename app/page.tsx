@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Send, Bot, User, FileSpreadsheet, Loader2, Calendar, Building2, ChevronDown, ChevronRight, Plus, BookOpen } from 'lucide-react'
-import { UserButton, useUser } from "@clerk/nextjs"
+import { UserButton, useUser, SignedIn, SignedOut, SignInButton } from "@clerk/nextjs"
 
 // Format number for summary panel - abbreviate large numbers
 function formatSummaryNumber(value: number | string): string {
@@ -304,213 +304,228 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-900 flex flex-col">
-      <header className="bg-slate-800 border-b border-slate-700 p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-slate-800 p-1 rounded-lg">
-              <img src="/logo.png" alt="Logo" className="h-8 w-auto" style={{ objectFit: 'contain' }} />
+      <SignedIn>
+        <header className="bg-slate-800 border-b border-slate-700 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="bg-slate-800 p-1 rounded-lg">
+                <img src="/logo.png" alt="Logo" className="h-8 w-auto" style={{ objectFit: 'contain' }} />
+              </div>
+              <h1 className="text-lg font-bold text-white">Financial Bot</h1>
             </div>
-            <h1 className="text-lg font-bold text-white">Financial Bot</h1>
+            <div className="flex gap-2">
+              <UserButton afterSignOutUrl="/" />
+              <button
+                onClick={() => setShowAcronyms(!showAcronyms)}
+                className={`p-2 rounded-lg transition-colors ${showAcronyms ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+              >
+                <BookOpen className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                disabled={!debugData}
+                className={`p-2 rounded-lg transition-colors ${debugData ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`p-2 rounded-lg transition-colors ${showFilters ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300'}`}
+              >
+                <Calendar className="w-5 h-5" />
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <UserButton afterSignOutUrl="/" />
-            <button
-              onClick={() => setShowAcronyms(!showAcronyms)}
-              className={`p-2 rounded-lg transition-colors ${showAcronyms ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
-            >
-              <BookOpen className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setShowDiagnostics(!showDiagnostics)}
-              disabled={!debugData}
-              className={`p-2 rounded-lg transition-colors ${debugData ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-            >
-              <FileSpreadsheet className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`p-2 rounded-lg transition-colors ${showFilters ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300'}`}
-            >
-              <Calendar className="w-5 h-5" />
-            </button>
-          </div>
+
+          {/* Project Selection Panel - Always visible when filters expanded */}
+          {showFilters && (
+            <div className="mt-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
+              >
+                {Object.keys(folders).sort().reverse().map(year => <option key={year} value={year}>{year}</option>)}
+              </select>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
+              >
+                {folders[selectedYear]?.sort((a, b) => parseInt(b) - parseInt(a)).map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <input
+                type="text"
+                placeholder="Search project name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
+              />
+              <select
+                value={selectedProject}
+                onChange={(e) => handleProjectSelect(e.target.value)}
+                disabled={isLoadingProject || filteredProjects.length === 0}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="">-- Select Project --</option>
+                {filteredProjects.sort((a, b) => parseInt(a.code) - parseInt(b.code)).map(p => <option key={p.filename} value={`${p.code} - ${p.name}`}>{p.code} {p.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Diagnostics Panel */}
+          {showDiagnostics && debugData && (
+            <div className="mt-4 space-y-3 bg-slate-800 rounded-lg p-3 animate-in slide-in-from-top-2 duration-200 max-h-96 overflow-y-auto">
+              <div className="flex items-center justify-between sticky top-0 bg-slate-800 pb-2 border-b border-slate-700">
+                <h3 className="text-sm font-semibold text-white">📊 Diagnostics</h3>
+                <span className="text-xs text-slate-400">{debugData.totalRows} rows</span>
+              </div>
+              <div className="text-xs text-slate-400">
+                📁 {debugData.source}
+              </div>
+              <div>
+                <span className="text-slate-400 text-xs font-semibold">🔢 All ItemCodes:</span>
+                <div className="text-slate-300 text-xs mt-1 flex flex-wrap gap-1">
+                  {debugData.uniqueItemCodes?.map((code: string, i: number) => (
+                    <span key={i} className="bg-slate-700 px-1.5 py-0.5 rounded">{code}</span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="text-slate-400 text-xs font-semibold">🏷️ All DataTypes:</span>
+                <div className="text-slate-300 text-xs mt-1 grid grid-cols-1 gap-y-1">
+                  {debugData.uniqueDataTypes?.map((dt: string, i: number) => (
+                    <div key={i}>• {dt}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Acronyms Panel */}
+          {showAcronyms && (
+            <div className="mt-4 space-y-2 bg-slate-800 rounded-lg p-3 animate-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">📖 Acronyms</h3>
+                <span className="text-xs text-slate-400">{Object.keys(acronyms).length} terms</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                {Object.entries(acronyms).map(([abbr, full]) => (
+                  <div key={abbr} className="flex items-start gap-1">
+                    <span className="text-blue-400 font-semibold min-w-[40px]">{abbr}</span>
+                    <span className="text-slate-300">= {full}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Selected Project Info */}
+          {selectedProject && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-green-400" />
+                <span className="text-green-400 text-sm font-medium">{selectedProject}</span>
+                {isLoadingProject && <Loader2 className="w-4 h-4 text-blue-400 animate-spin ml-auto" />}
+              </div>
+              {metrics && (
+                <>
+                  {/* Financial Metrics Row */}
+                  <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">BP GP</div>
+                      <div className="text-green-400 font-bold text-base">{formatSummaryNumber(metrics['Business Plan GP'])}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">Proj GP</div>
+                      <div className="text-blue-400 font-bold text-base">{formatSummaryNumber(metrics['Projected GP'])}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">WIP</div>
+                      <div className="text-purple-400 font-bold text-base">{formatSummaryNumber(metrics['WIP GP'])}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">CF</div>
+                      <div className="text-yellow-400 font-bold text-base">{formatSummaryNumber(metrics['Cash Flow'])}</div>
+                    </div>
+                  </div>
+                  {/* Project Info Row */}
+                  <div className="mt-2 grid grid-cols-5 gap-2 text-xs">
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">Start</div>
+                      <div className="text-orange-400 font-medium">{metrics['Start Date']}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">Complete</div>
+                      <div className="text-orange-400 font-medium">{metrics['Complete Date']}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">Target</div>
+                      <div className="text-orange-400 font-medium">{metrics['Target Complete Date']}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">Time %</div>
+                      <div className="text-pink-400 font-medium">{metrics['Time Consumed (%)']}</div>
+                    </div>
+                    <div className="bg-slate-700/50 rounded px-2 py-1">
+                      <div className="text-slate-400">Target %</div>
+                      <div className="text-cyan-400 font-medium">{metrics['Target Completed (%)']}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.map((message, i) => (
+            <div key={i} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`flex gap-2 max-w-[85%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${message.role === 'user' ? 'bg-blue-500' : 'bg-green-500'}`}>
+                  {message.role === 'user' ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
+                </div>
+                <div className={`rounded-xl px-3 py-2 ${message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-100'}`}>
+                  {message.role === 'assistant' && message.candidates && message.candidates.length > 0 ? (
+                    <CandidateMessage content={message.content} candidates={message.candidates} onSelect={handleCandidateSelect} />
+                  ) : (
+                    <div className="whitespace-pre-wrap text-sm">{boldDollars(message.content)}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+          {!selectedProject && (
+            <div className="text-center py-8">
+              <Building2 className="w-10 h-10 text-slate-600 mx-auto mb-2" />
+              <p className="text-slate-500 text-sm">Select a project above to begin</p>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* Project Selection Panel - Always visible when filters expanded */}
-        {showFilters && (
-          <div className="mt-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-            >
-              {Object.keys(folders).sort().reverse().map(year => <option key={year} value={year}>{year}</option>)}
-            </select>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-            >
-              {folders[selectedYear]?.sort((a, b) => parseInt(b) - parseInt(a)).map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <input
-              type="text"
-              placeholder="Search project name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-            />
-            <select
-              value={selectedProject}
-              onChange={(e) => handleProjectSelect(e.target.value)}
-              disabled={isLoadingProject || filteredProjects.length === 0}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-            >
-              <option value="">-- Select Project --</option>
-              {filteredProjects.sort((a, b) => parseInt(a.code) - parseInt(b.code)).map(p => <option key={p.filename} value={`${p.code} - ${p.name}`}>{p.code} {p.name}</option>)}
-            </select>
-          </div>
-        )}
+        <div className="p-4 border-t border-slate-700 bg-slate-800/50">
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder={selectedProject ? "Ask about financial data..." : "Select a project first"} className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white placeholder-slate-500 text-sm" disabled={!selectedProject} />
+            <button type="submit" disabled={!input.trim() || !selectedProject} className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-xl px-4 py-2">
+              <Send className="w-5 h-5" />
+            </button>
+          </form>
+        </div>
+      </SignedIn>
 
-        {/* Diagnostics Panel */}
-        {showDiagnostics && debugData && (
-          <div className="mt-4 space-y-3 bg-slate-800 rounded-lg p-3 animate-in slide-in-from-top-2 duration-200 max-h-96 overflow-y-auto">
-            <div className="flex items-center justify-between sticky top-0 bg-slate-800 pb-2 border-b border-slate-700">
-              <h3 className="text-sm font-semibold text-white">📊 Diagnostics</h3>
-              <span className="text-xs text-slate-400">{debugData.totalRows} rows</span>
-            </div>
-            <div className="text-xs text-slate-400">
-              📁 {debugData.source}
-            </div>
-            <div>
-              <span className="text-slate-400 text-xs font-semibold">🔢 All ItemCodes:</span>
-              <div className="text-slate-300 text-xs mt-1 flex flex-wrap gap-1">
-                {debugData.uniqueItemCodes?.map((code: string, i: number) => (
-                  <span key={i} className="bg-slate-700 px-1.5 py-0.5 rounded">{code}</span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <span className="text-slate-400 text-xs font-semibold">🏷️ All DataTypes:</span>
-              <div className="text-slate-300 text-xs mt-1 grid grid-cols-1 gap-y-1">
-                {debugData.uniqueDataTypes?.map((dt: string, i: number) => (
-                  <div key={i}>• {dt}</div>
-                ))}
-              </div>
-            </div>
+      <SignedOut>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-white mb-4">Financial Chatbot</h1>
+            <SignInButton mode="modal">
+              <button className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors">
+                Sign In to Continue
+              </button>
+            </SignInButton>
           </div>
-        )}
-
-        {/* Acronyms Panel */}
-        {showAcronyms && (
-          <div className="mt-4 space-y-2 bg-slate-800 rounded-lg p-3 animate-in slide-in-from-top-2 duration-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">📖 Acronyms</h3>
-              <span className="text-xs text-slate-400">{Object.keys(acronyms).length} terms</span>
-            </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              {Object.entries(acronyms).map(([abbr, full]) => (
-                <div key={abbr} className="flex items-start gap-1">
-                  <span className="text-blue-400 font-semibold min-w-[40px]">{abbr}</span>
-                  <span className="text-slate-300">= {full}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Selected Project Info */}
-        {selectedProject && (
-          <div className="mt-3">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-green-400" />
-              <span className="text-green-400 text-sm font-medium">{selectedProject}</span>
-              {isLoadingProject && <Loader2 className="w-4 h-4 text-blue-400 animate-spin ml-auto" />}
-            </div>
-            {metrics && (
-              <>
-                {/* Financial Metrics Row */}
-                <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">BP GP</div>
-                    <div className="text-green-400 font-bold text-base">{formatSummaryNumber(metrics['Business Plan GP'])}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">Proj GP</div>
-                    <div className="text-blue-400 font-bold text-base">{formatSummaryNumber(metrics['Projected GP'])}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">WIP</div>
-                    <div className="text-purple-400 font-bold text-base">{formatSummaryNumber(metrics['WIP GP'])}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">CF</div>
-                    <div className="text-yellow-400 font-bold text-base">{formatSummaryNumber(metrics['Cash Flow'])}</div>
-                  </div>
-                </div>
-                {/* Project Info Row */}
-                <div className="mt-2 grid grid-cols-5 gap-2 text-xs">
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">Start</div>
-                    <div className="text-orange-400 font-medium">{metrics['Start Date']}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">Complete</div>
-                    <div className="text-orange-400 font-medium">{metrics['Complete Date']}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">Target</div>
-                    <div className="text-orange-400 font-medium">{metrics['Target Complete Date']}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">Time %</div>
-                    <div className="text-pink-400 font-medium">{metrics['Time Consumed (%)']}</div>
-                  </div>
-                  <div className="bg-slate-700/50 rounded px-2 py-1">
-                    <div className="text-slate-400">Target %</div>
-                    <div className="text-cyan-400 font-medium">{metrics['Target Completed (%)']}</div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </header>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message, i) => (
-          <div key={i} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`flex gap-2 max-w-[85%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${message.role === 'user' ? 'bg-blue-500' : 'bg-green-500'}`}>
-                {message.role === 'user' ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
-              </div>
-              <div className={`rounded-xl px-3 py-2 ${message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-100'}`}>
-                {message.role === 'assistant' && message.candidates && message.candidates.length > 0 ? (
-                  <CandidateMessage content={message.content} candidates={message.candidates} onSelect={handleCandidateSelect} />
-                ) : (
-                  <div className="whitespace-pre-wrap text-sm">{boldDollars(message.content)}</div>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-        {!selectedProject && (
-          <div className="text-center py-8">
-            <Building2 className="w-10 h-10 text-slate-600 mx-auto mb-2" />
-            <p className="text-slate-500 text-sm">Select a project above to begin</p>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="p-4 border-t border-slate-700 bg-slate-800/50">
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder={selectedProject ? "Ask about financial data..." : "Select a project first"} className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white placeholder-slate-500 text-sm" disabled={!selectedProject} />
-          <button type="submit" disabled={!input.trim() || !selectedProject} className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-xl px-4 py-2">
-            <Send className="w-5 h-5" />
-          </button>
-        </form>
-      </div>
+        </div>
+      </SignedOut>
     </main>
   )
 }
