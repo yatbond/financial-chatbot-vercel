@@ -842,7 +842,6 @@ function answerQuestion(data: FinancialRow[], project: string, question: string,
       }
     }
   }
-  }
   
   // If no match found, use fuzzy matching with all significant words
   if (!targetDataType) {
